@@ -41,7 +41,9 @@ export default function HomeScreen() {
       </ThemedView>
       <ThemedView style={styles.stepContainer}>
         <ThemedText type="subtitle">Project card component</ThemedText>
-        <ThemedText>...</ThemedText>
+        <ThemedText>
+          Create reusable card UI and pull content from Firestore
+        </ThemedText>
       </ThemedView>
     </ParallaxScrollView>
   );
