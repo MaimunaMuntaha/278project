@@ -1,25 +1,20 @@
-import React, { useEffect, useMemo, useState } from "react";
-import { FlatList, Keyboard, StyleSheet, View } from "react-native";
-import {
-  Chip,
-  List,
-  TextInput,
-  useTheme,
-} from "react-native-paper";
-import { fetchAllTags, addGlobalTag } from "@/constants/tags";
+import React, { useEffect, useMemo, useState } from 'react';
+import { FlatList, Keyboard, StyleSheet, View } from 'react-native';
+import { Chip, List, TextInput, useTheme } from 'react-native-paper';
+import { fetchAllTags, addGlobalTag } from '@/constants/tags';
 
 /* ------------------------------------------------------------------ */
 /* props                                                               */
 interface Props {
-  value: string[];                    // current tag list from parent
+  value: string[]; // current tag list from parent
   onChange: (tags: string[]) => void; // callback → parent state
-  currentUid: string;                 // needed when creating new global tag
+  currentUid: string; // needed when creating new global tag
 }
 export default function TagSelector({ value, onChange, currentUid }: Props) {
   /* ------------------------------------------------------------------ */
   const { colors } = useTheme();
   const [allTags, setAllTags] = useState<string[]>([]);
-  const [query,   setQuery]   = useState("");
+  const [query, setQuery] = useState('');
 
   /* fetch global tag list once */
   useEffect(() => {
@@ -29,7 +24,7 @@ export default function TagSelector({ value, onChange, currentUid }: Props) {
   /* ------------------------------------------------------------------ */
   /* derived filtered suggestions                                       */
   const suggestions = useMemo(() => {
-    if (query.trim() === "") return [];
+    if (query.trim() === '') return [];
     const q = query.toLowerCase();
     return allTags
       .filter((t) => t.toLowerCase().includes(q) && !value.includes(t))
@@ -39,7 +34,7 @@ export default function TagSelector({ value, onChange, currentUid }: Props) {
   /* helpers                                                            */
   const addTag = (tag: string) => {
     onChange([...value, tag]);
-    setQuery("");
+    setQuery('');
     Keyboard.dismiss();
   };
   const removeTag = (tag: string) => onChange(value.filter((t) => t !== tag));
@@ -73,8 +68,8 @@ export default function TagSelector({ value, onChange, currentUid }: Props) {
           const clean = query.trim();
           if (!clean) return;
           if (!allTags.includes(clean)) {
-            await addGlobalTag(clean, currentUid);     // create globally
-            setAllTags((prev) => [...prev, clean]);    // keep local list fresh
+            await addGlobalTag(clean, currentUid); // create globally
+            setAllTags((prev) => [...prev, clean]); // keep local list fresh
           }
           addTag(clean);
         }}
@@ -101,9 +96,14 @@ export default function TagSelector({ value, onChange, currentUid }: Props) {
 
 /* -------------------------------------------------------------------- */
 const styles = StyleSheet.create({
-  container: { width: "100%" },
-  chipRow:   { flexDirection: "row", flexWrap: "wrap", marginBottom: 8 },
-  chip:      { margin: 2 },
-  dropdown:  { maxHeight: 220, marginTop: 4,
-               borderRadius: 8, backgroundColor: "#fff", elevation: 4 },
+  container: { width: '100%' },
+  chipRow: { flexDirection: 'row', flexWrap: 'wrap', marginBottom: 8 },
+  chip: { margin: 2 },
+  dropdown: {
+    maxHeight: 220,
+    marginTop: 4,
+    borderRadius: 8,
+    backgroundColor: '#fff',
+    elevation: 4,
+  },
 });

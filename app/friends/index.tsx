@@ -1,6 +1,6 @@
-import React, { useMemo, useState } from "react";
-import { FlashList } from "@shopify/flash-list";
-import { StyleSheet, View } from "react-native";
+import React, { useMemo, useState } from 'react';
+import { StyleSheet, View } from 'react-native';
+import { FlashList } from '@shopify/flash-list';
 import {
   Avatar,
   Divider,
@@ -10,57 +10,36 @@ import {
   Provider as PaperProvider,
   Text,
   useTheme,
-} from "react-native-paper";
-import { Stack } from "expo-router";
+} from 'react-native-paper';
+import { Stack } from 'expo-router';
 
 /* ------------------------------------------------------------------ */
-/* dummy data – replace with Firestore query later                    */
+/* dummy data – replace with Firestore later                           */
 type Friend = {
   id: string;
   name: string;
   handle: string;
   online?: boolean;
-  joined: number; // unix-time (used for “latest” sorting)
+  joined: number;
 };
 const SAMPLE: Friend[] = [
-  {
-    id: "1",
-    name: "Ada Byron",
-    handle: "@adab",
-    online: true,
-    joined: 1714413560,
-  },
-  {
-    id: "2",
-    name: "Grace Hopper",
-    handle: "@hopper",
-    joined: 1714313560,
-  },
-  {
-    id: "3",
-    name: "Linus Torvalds",
-    handle: "@linus",
-    joined: 1712213560,
-  },
+  { id: '1', name: 'Ada Byron',   handle: '@adab',  online: true, joined: 1 },
+  { id: '2', name: 'Grace Hopper',handle: '@hopper',             joined: 2 },
+  { id: '3', name: 'Linus T.',    handle: '@linus',              joined: 3 },
 ];
 
 /* ------------------------------------------------------------------ */
-export default function Friends() {
+export default function FriendsScreen() {
   const { colors } = useTheme();
 
-  /* view state */
-  const [order, setOrder] = useState<"default" | "latest" | "alpha">("default");
-  const [menuVisible, setMenuVisible] = useState(false);
+  const [order, setOrder]         = useState<'default' | 'latest' | 'alpha'>('default');
+  const [menuVisible, setVisible] = useState(false);
 
-  /* derived sorted data */
   const data = useMemo(() => {
     switch (order) {
-      case "latest":
-        return [...SAMPLE].sort((a, b) => b.joined - a.joined);
-      case "alpha":
-        return [...SAMPLE].sort((a, b) => a.name.localeCompare(b.name));
-      default:
-        return [...SAMPLE].sort((a, b) => a.joined - b.joined); // oldest → newest
+      case 'latest': return [...SAMPLE].sort((a,b)=>b.joined-a.joined);
+      case 'alpha':  return [...SAMPLE].sort((a,b)=>a.name.localeCompare(b.name));
+      default:       return SAMPLE;
     }
   }, [order]);
 
@@ -68,57 +47,29 @@ export default function Friends() {
   return (
     <PaperProvider>
       <View style={styles.container}>
-        <Stack.Screen options={{ title: "Friends" }} />
+        <Stack.Screen options={{ title: 'Friends', headerShown: true }} />
 
-        {/* ---------- Sort-by bar ----------------------------------- */}
+        {/* -------- sort bar -------------------------------------- */}
         <View style={styles.sortBar}>
           <Text variant="labelLarge">
             Sort&nbsp;by&nbsp;
-            <Text style={{ fontWeight: "600" }}>
-              {order === "default"
-                ? "Default"
-                : order === "latest"
-                ? "Latest"
-                : "Alphabetical"}
+            <Text style={{ fontWeight: '600' }}>
+              {order === 'default' ? 'Default' : order === 'latest' ? 'Latest' : 'Alphabetical'}
             </Text>
           </Text>
 
           <Menu
             visible={menuVisible}
-            onDismiss={() => setMenuVisible(false)}
-            anchor={
-              <IconButton
-                icon="chevron-down"
-                size={20}
-                onPress={() => setMenuVisible(true)}
-              />
-            }
+            onDismiss={() => setVisible(false)}
+            anchor={<IconButton icon="chevron-down" size={20} onPress={() => setVisible(true)} />}
           >
-            <Menu.Item
-              onPress={() => {
-                setOrder("default");
-                setMenuVisible(false);
-              }}
-              title="Default"
-            />
-            <Menu.Item
-              onPress={() => {
-                setOrder("latest");
-                setMenuVisible(false);
-              }}
-              title="Latest"
-            />
-            <Menu.Item
-              onPress={() => {
-                setOrder("alpha");
-                setMenuVisible(false);
-              }}
-              title="Alphabetical"
-            />
+            <Menu.Item onPress={()=>{setOrder('default'); setVisible(false);}} title="Default" />
+            <Menu.Item onPress={()=>{setOrder('latest');  setVisible(false);}} title="Latest"  />
+            <Menu.Item onPress={()=>{setOrder('alpha');   setVisible(false);}} title="Alphabetical" />
           </Menu>
         </View>
 
-        {/* ---------- list ------------------------------------------ */}
+        {/* -------- list ------------------------------------------ */}
         <FlashList
           data={data}
           estimatedItemSize={60}
@@ -128,14 +79,10 @@ export default function Friends() {
               title={() => (
                 <View style={styles.inlineName}>
                   <Text variant="bodyLarge">{item.name}</Text>
-
-                  {/* tiny status dot */}
                   <List.Icon
                     icon="circle"
                     size={12}
-                    color={
-                      item.online ? colors.primary : colors.onSurfaceDisabled
-                    }
+                    color={item.online ? colors.primary : colors.onSurfaceDisabled}
                     style={{ marginLeft: 6, marginRight: 0 }}
                   />
                 </View>
@@ -145,7 +92,7 @@ export default function Friends() {
                 <Avatar.Text
                   size={36}
                   label={item.name[0]}
-                  style={{ backgroundColor: "#90caf9" }}
+                  style={{ backgroundColor: '#90caf9' }}
                 />
               )}
             />
@@ -159,12 +106,7 @@ export default function Friends() {
 /* ------------------------------------------------------------------ */
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  sortBar: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-  },
-  inlineName: { flexDirection: "row", alignItems: "center" },
+  sortBar:   { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+               paddingHorizontal: 12, paddingVertical: 6 },
+  inlineName:{ flexDirection: 'row', alignItems: 'center' },
 });

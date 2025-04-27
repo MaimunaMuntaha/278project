@@ -1,29 +1,25 @@
-import React, { useState } from "react";
-import { View } from "react-native";
-import { Card, Chip, List, SegmentedButtons } from "react-native-paper";
-import { Stack } from "expo-router";
+import React, { useState } from 'react';
+import { View } from 'react-native';
+import { Card, SegmentedButtons } from 'react-native-paper';
+import { Stack } from 'expo-router';
 
-const current = [
-  { id: "c1", title: "Spider Robot", role: "ML Engineer" },
-];
-const finished = [
-  { id: "f1", title: "CS147 Design Project", role: "Designer" },
-];
+const current  = [{ id: 'c1', title: 'Spider Robot',          role: 'ML Engineer' }];
+const finished = [{ id: 'f1', title: 'CS147 Design Project',  role: 'Designer'    }];
 
 export default function ProjectsScreen() {
-  const [section, setSection] = useState<"current" | "finished">("current");
-  const data = section === "current" ? current : finished;
+  const [section, setSection] = useState<'current' | 'finished'>('current');
+  const data = section === 'current' ? current : finished;
 
   return (
     <View style={{ flex: 1 }}>
-      <Stack.Screen options={{ title: "My Projects" }} />
+      <Stack.Screen options={{ title: 'My Projects', headerShown: true }} />
 
       <SegmentedButtons
         value={section}
         onValueChange={(v) => setSection(v as any)}
         buttons={[
-          { value: "current",  label: "Current" },
-          { value: "finished", label: "Finished" },
+          { value: 'current',  label: 'Current'  },
+          { value: 'finished', label: 'Finished' },
         ]}
         style={{ margin: 8 }}
       />

@@ -1,5 +1,5 @@
-import React, { useState } from "react";
-import { StyleSheet, View, TouchableOpacity } from "react-native";
+import React, { useState } from 'react';
+import { StyleSheet, View, TouchableOpacity } from 'react-native';
 import {
   Avatar,
   Button,
@@ -9,12 +9,12 @@ import {
   IconButton,
   Text,
   TextInput,
-} from "react-native-paper";
-import * as ImagePicker from "expo-image-picker";
-import { useRouter } from "expo-router";
+} from 'react-native-paper';
+import * as ImagePicker from 'expo-image-picker';
+import { useRouter } from 'expo-router';
 
-import { ThemedView } from "@/components/ThemedView";
-import TagSelector from "@/components/TagSelector";
+import { ThemedView } from '@/components/ThemedView';
+import TagSelector from '@/components/TagSelector';
 
 export default function ProfileScreen() {
   const router = useRouter();
@@ -22,15 +22,15 @@ export default function ProfileScreen() {
   /* ------------------------------------------------------------------ */
   /* mock local state – replace with Firestore in prod                  */
   const [photoUri, setPhotoUri] = useState<string | undefined>();
-  const [bio, setBio]           = useState("I love building social apps!");
-  const [tags, setTags]         = useState<string[]>([
-    "Earth System",
-    "Freelance",
-    "Miscellaneous",
+  const [bio, setBio] = useState('I love building social apps!');
+  const [tags, setTags] = useState<string[]>([
+    'Earth System',
+    'Freelance',
+    'Miscellaneous',
   ]);
 
-  const [isEditing, setEditing]   = useState(false);
-  const [draftBio,  setDraftBio]  = useState(bio);
+  const [isEditing, setEditing] = useState(false);
+  const [draftBio, setDraftBio] = useState(bio);
   const [draftTags, setDraftTags] = useState(tags);
 
   /* ------------------------------------------------------------------ */
@@ -64,7 +64,7 @@ export default function ProfileScreen() {
             source={
               photoUri
                 ? { uri: photoUri }
-                : require("@/assets/images/profile-sample.png")
+                : require('@/assets/images/profile-sample.png')
             }
           />
           {isEditing && (
@@ -88,7 +88,7 @@ export default function ProfileScreen() {
       <View style={styles.statsRow}>
         <TouchableOpacity
           style={styles.statItem}
-          onPress={() => router.push("/friends")}
+          onPress={() => router.push('/friends')}
         >
           <Icon source="account-multiple" size={24} />
           <Text variant="titleMedium" style={styles.statNumber}>
@@ -101,7 +101,7 @@ export default function ProfileScreen() {
 
         <TouchableOpacity
           style={styles.statItem}
-          onPress={() => router.push("/projects")}
+          onPress={() => router.push('/projects')}
         >
           <Icon source="star" size={24} />
           <Text variant="titleMedium" style={styles.statNumber}>
@@ -148,7 +148,7 @@ export default function ProfileScreen() {
             <TagSelector
               value={draftTags}
               onChange={setDraftTags}
-              currentUid="demoUser"      /* replace with auth.uid */
+              currentUid="demoUser" /* replace with auth.uid */
             />
           </Card.Content>
         ) : (
@@ -183,29 +183,29 @@ export default function ProfileScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, padding: 24, gap: 20 },
   card: { borderRadius: 16 },
-  center: { alignItems: "center" },
-  cameraBtn: { position: "absolute", right: -6, bottom: -6 },
+  center: { alignItems: 'center' },
+  cameraBtn: { position: 'absolute', right: -6, bottom: -6 },
   name: { marginTop: 8 },
-  major: { color: "gray" },
+  major: { color: 'gray' },
 
   /* stats ----------------------------------------------------------- */
   statsRow: {
-    flexDirection: "row",
-    justifyContent: "space-evenly",
+    flexDirection: 'row',
+    justifyContent: 'space-evenly',
     marginTop: 4,
   },
-  statItem: { alignItems: "center" },
+  statItem: { alignItems: 'center' },
   statNumber: { marginLeft: 4 },
-  statLabel: { marginTop: 2, fontSize: 12, color: "gray" },
+  statLabel: { marginTop: 2, fontSize: 12, color: 'gray' },
 
   /* tags ------------------------------------------------------------ */
-  rowWrap: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
+  rowWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   chip: { marginVertical: 4 },
 
   /* edit buttons ---------------------------------------------------- */
   editRow: {
-    flexDirection: "row",
-    justifyContent: "space-evenly",
+    flexDirection: 'row',
+    justifyContent: 'space-evenly',
     marginTop: 8,
   },
 });

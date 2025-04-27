@@ -1,6 +1,6 @@
-import { StyleSheet } from "react-native";
-import { ThemedView } from "@/components/ThemedView";
-import { ThemedText } from "@/components/ThemedText";
+import { StyleSheet } from 'react-native';
+import { ThemedView } from '@/components/ThemedView';
+import { ThemedText } from '@/components/ThemedText';
 
 export default function ChatScreen() {
   return (
@@ -11,5 +11,5 @@ export default function ChatScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, alignItems: "center", justifyContent: "center" },
+  container: { flex: 1, alignItems: 'center', justifyContent: 'center' },
 });
