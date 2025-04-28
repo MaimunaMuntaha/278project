@@ -12,16 +12,16 @@ import {
   Dimensions,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-
-import { HelloWave } from '@/components/HelloWave';
+import { useFonts } from 'expo-font';
 import ParallaxScrollView from '@/components/ParallaxScrollView';
 import { ThemedText } from '@/components/ThemedText';
 import { ThemedView } from '@/components/ThemedView';
 
 const SCREEN_WIDTH = Dimensions.get('window').width; //get the width of the screen being used to add dynamic changes to frontend ui
-const SWIPE_THRESHOLD = 0.25 * SCREEN_WIDTH; //how we can style projects currently: tinder-esque
+const SWIPE_THRESHOLD = 0.5 * SCREEN_WIDTH; //how we can style projects currently: tinder-esque
 const LIGHT_PURPLE = '#EDE6F6'; //for the colors in style sheet
-const DARK_PURPLE = '#6B4EFF';
+const DARK_PURPLE = '#6750a4';
+
 const initialProjects = [
   {
     id: 1,
@@ -61,6 +61,7 @@ export default function FeedScreen() {
   const [tags, setTags] = useState('');
   const [description, setDescription] = useState('');
 
+  //for swiping and finding projects feature:
   const position = useRef(new Animated.ValueXY()).current;
 
   const panResponder = useRef(
@@ -84,13 +85,9 @@ export default function FeedScreen() {
     }),
   ).current;
 
+  //swiping
   const forceSwipe = (direction: 'left' | 'right') => {
     const x = direction === 'right' ? SCREEN_WIDTH : -SCREEN_WIDTH;
-    Animated.timing(position, {
-      toValue: { x, y: 0 },
-      duration: 250,
-      useNativeDriver: false,
-    }).start(() => onSwipeComplete(direction));
   };
 
   const resetPosition = () => {
@@ -117,39 +114,44 @@ export default function FeedScreen() {
     setDescription('');
   };
 
-  const renderProjectCard = () => {
+  const projectSwipe = () => {
     if (projects.length === 0) {
       return (
         <View style={styles.noMoreProjects}>
           <ThemedText type="subtitle">
-            There's no more projects available!
+            There's no more projects available!!
           </ThemedText>
           <TouchableOpacity
             style={styles.refreshButton}
             onPress={() => setProjects(initialProjectList)}
           >
             <ThemedText style={{ color: 'white' }}>
-              Want to look at projects again?
+              Want to look at the available projects again?
             </ThemedText>
           </TouchableOpacity>
         </View>
       );
     }
 
-    const project = projects[0];
+    const project = projects[0]; //start with first project
     return (
       <Animated.View
         {...panResponder.panHandlers}
         style={[styles.card, position.getLayout()]}
       >
-        <ThemedText type="title">{project.title}</ThemedText>
-        <ThemedText type="subtitle">{project.tags}</ThemedText>
+        <ThemedText type="title" style={{ paddingBottom: 20 }}>
+          {project.title}
+        </ThemedText>
+
+        <ThemedText type="subtitle" style={{ paddingBottom: 20 }}>
+          {project.tags}
+        </ThemedText>
         <ThemedText>{project.description}</ThemedText>
         <TouchableOpacity
           style={styles.chatButton}
           onPress={() => console.log(`Chat with owner of ${project.title}`)}
         >
-          <ThemedText style={{ color: 'white' }}>Chat</ThemedText>
+          <ThemedText style={{ color: 'white' }}>Chat with Me</ThemedText>
         </TouchableOpacity>
       </Animated.View>
     );
@@ -158,23 +160,24 @@ export default function FeedScreen() {
   return (
     <ThemedView style={{ flex: 1 }}>
       <ParallaxScrollView
-        headerBackgroundColor={{ light: '#A1CEDC', dark: '#1D3D47' }}
+        headerBackgroundColor={{ light: '#EDE6F6', dark: DARK_PURPLE }}
         headerImage={
           <Image
-            source={require('@/assets/images/partial-react-logo.png')}
+            source={require('@/assets/images/1.png')}
             style={styles.reactLogo}
           />
         }
       >
         <ThemedView style={styles.titleContainer}>
-          <ThemedText type="title">Main Feed!</ThemedText>
-          <HelloWave />
+          <ThemedText type="title" style={{ fontSize: 30, color: '#1D3D47' }}>
+            Welcome, John Doe
+          </ThemedText>
         </ThemedView>
 
-        <View style={styles.feedContainer}>{renderProjectCard()}</View>
+        <View style={styles.feedContainer}>{projectSwipe()}</View>
       </ParallaxScrollView>
 
-      {/* Add a Project Button */}
+      {/* Button to add a project */}
       <TouchableOpacity
         style={styles.floatingButton}
         onPress={() => setModal(true)}
@@ -182,12 +185,11 @@ export default function FeedScreen() {
         <Ionicons name="add" size={32} color="white" />
       </TouchableOpacity>
 
-      {/* Modal for New Project */}
+      {/* Create a modal that appears when clicking the "+" button */}
       <Modal
         visible={modal}
         animationType="slide"
-        transparent={true}
-        onRequestClose={() => setModal(false)}
+        onRequestClose={() => setModal(false)} // initially the modal is not visible unless the user wants to make a project
       >
         <View style={styles.modalStyle}>
           <View style={styles.modalContent}>
@@ -200,13 +202,13 @@ export default function FeedScreen() {
               style={styles.input}
             />
             <TextInput
-              placeholder="Tags (comma separated)"
+              placeholder="Tags (separate tags with commas)"
               value={tags}
               onChangeText={setTags}
               style={styles.input}
             />
             <TextInput
-              placeholder="Description"
+              placeholder="Project Description"
               value={description}
               onChangeText={setDescription}
               multiline
@@ -214,12 +216,15 @@ export default function FeedScreen() {
             />
 
             <View style={styles.buttonRow}>
-              <Button
-                title="Cancel"
+              <TouchableOpacity
+                style={styles.chatButton}
                 onPress={() => setModal(false)}
-                color="gray"
-              />
-              <Button title="Post" onPress={handlePost} />
+              >
+                <ThemedText style={{ color: 'white' }}>Cancel</ThemedText>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.chatButton} onPress={handlePost}>
+                <ThemedText style={{ color: 'white' }}>Post Project</ThemedText>
+              </TouchableOpacity>
             </View>
           </View>
         </View>
@@ -234,6 +239,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
     padding: 16,
+    fontFamily: 'SpaceMono',
   },
   refreshButton: {
     marginTop: 20,
@@ -242,16 +248,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: 30,
     borderRadius: 12,
     alignItems: 'center',
-    shadowColor: '#6B4EFF',
+    shadowColor: '#39298c',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.3,
     shadowRadius: 4,
     elevation: 5,
   },
   reactLogo: {
-    height: 178,
-    width: 290,
-    bottom: 0,
+    height: 150,
+    width: SCREEN_WIDTH,
+    bottom: 50,
     left: 0,
     position: 'absolute',
   },
@@ -260,21 +266,28 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginTop: 20,
     paddingHorizontal: 16,
-    minHeight: 400,
+    minHeight: 500,
   },
   card: {
     width: '100%',
     backgroundColor: LIGHT_PURPLE,
-    padding: 20,
+    padding: 30,
     borderRadius: 20,
     marginVertical: 12,
-    shadowColor: '#6B4EFF',
+    shadowColor: '#39298c',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.2,
     shadowRadius: 6,
-    elevation: 5,
   },
   chatButton: {
+    backgroundColor: DARK_PURPLE,
+    marginTop: 20,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  postButton: {
     backgroundColor: DARK_PURPLE,
     marginTop: 20,
     paddingVertical: 10,
@@ -292,7 +305,7 @@ const styles = StyleSheet.create({
     borderRadius: 32,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#6B4EFF',
+    shadowColor: '#39298c',
     shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.4,
     shadowRadius: 5,
@@ -310,20 +323,22 @@ const styles = StyleSheet.create({
     padding: 24,
     borderRadius: 20,
     gap: 16,
-    shadowColor: '#6B4EFF',
+    shadowColor: '#39298c',
     shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.3,
     shadowRadius: 6,
     elevation: 8,
+    fontFamily: 'SpaceMono',
   },
   input: {
     borderWidth: 1,
-    borderColor: '#D3CCE3',
+    borderColor: DARK_PURPLE,
     borderRadius: 12,
     paddingHorizontal: 14,
     paddingVertical: 10,
     fontSize: 16,
-    backgroundColor: '#F9F8FC',
+    backgroundColor: '#EDE6F6',
+    fontFamily: 'SpaceMono',
   },
   buttonRow: {
     flexDirection: 'row',
