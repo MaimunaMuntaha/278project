@@ -12,14 +12,13 @@ import {
   Dimensions,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useFonts } from 'expo-font';
 import ParallaxScrollView from '@/components/ParallaxScrollView';
 import { ThemedText } from '@/components/ThemedText';
 import { ThemedView } from '@/components/ThemedView';
 
 const SCREEN_WIDTH = Dimensions.get('window').width; //get the width of the screen being used to add dynamic changes to frontend ui
-const SWIPE_THRESHOLD = 0.5 * SCREEN_WIDTH; //how we can style projects currently: tinder-esque
-const LIGHT_PURPLE = '#EDE6F6'; //for the colors in style sheet
+const SWIPE_THRESHOLD = 0.1 * SCREEN_WIDTH; //how we can style projects currently: tinder-esque
+const LIGHT_PURPLE = '#e7e0ec'; //for the colors in style sheet
 const DARK_PURPLE = '#6750a4';
 
 const initialProjects = [
@@ -53,7 +52,7 @@ const initialProjects = [
   },
 ];
 
-export default function FeedScreen() {
+export default function Feed() {
   const [modal, setModal] = useState(false);
   const [projects, setProjects] = useState(initialProjects);
   const [initialProjectList] = useState(initialProjects);
@@ -85,9 +84,14 @@ export default function FeedScreen() {
     }),
   ).current;
 
-  //swiping
+  //Swiping and user interactivity limit:
   const forceSwipe = (direction: 'left' | 'right') => {
     const x = direction === 'right' ? SCREEN_WIDTH : -SCREEN_WIDTH;
+    Animated.timing(position, {
+      toValue: { x, y: 0 },
+      duration: 250,
+      useNativeDriver: false,
+    }).start(() => onSwipeComplete(direction));
   };
 
   const resetPosition = () => {
@@ -105,6 +109,7 @@ export default function FeedScreen() {
     position.setValue({ x: 0, y: 0 });
   };
 
+  // Make a new post:
   const handlePost = () => {
     console.log('Post submitted:', { title, tags, description });
     setModal(false);
@@ -114,6 +119,7 @@ export default function FeedScreen() {
     setDescription('');
   };
 
+  //Swipe through projectas:
   const projectSwipe = () => {
     if (projects.length === 0) {
       return (
@@ -132,8 +138,8 @@ export default function FeedScreen() {
         </View>
       );
     }
-
-    const project = projects[0]; //start with first project
+    //start with first project: index 0
+    const project = projects[0];
     return (
       <Animated.View
         {...panResponder.panHandlers}
@@ -149,9 +155,13 @@ export default function FeedScreen() {
         <ThemedText>{project.description}</ThemedText>
         <TouchableOpacity
           style={styles.chatButton}
-          onPress={() => console.log(`Chat with owner of ${project.title}`)}
+          onPress={() =>
+            console.log(
+              `Chat with the poster for the following project: ${project.title}`,
+            )
+          }
         >
-          <ThemedText style={{ color: 'white' }}>Chat with Me</ThemedText>
+          <ThemedText style={{ color: 'white' }}>Collab with Me</ThemedText>
         </TouchableOpacity>
       </Animated.View>
     );
@@ -160,7 +170,7 @@ export default function FeedScreen() {
   return (
     <ThemedView style={{ flex: 1 }}>
       <ParallaxScrollView
-        headerBackgroundColor={{ light: '#EDE6F6', dark: DARK_PURPLE }}
+        headerBackgroundColor={{ light: LIGHT_PURPLE, dark: DARK_PURPLE }}
         headerImage={
           <Image
             source={require('@/assets/images/1.png')}
@@ -235,11 +245,7 @@ export default function FeedScreen() {
 
 const styles = StyleSheet.create({
   titleContainer: {
-    flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    padding: 16,
-    fontFamily: 'SpaceMono',
   },
   refreshButton: {
     marginTop: 20,
@@ -248,9 +254,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 30,
     borderRadius: 12,
     alignItems: 'center',
-    shadowColor: '#39298c',
+    shadowColor: DARK_PURPLE,
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
+    shadowOpacity: 0.9,
     shadowRadius: 4,
     elevation: 5,
   },
@@ -274,7 +280,7 @@ const styles = StyleSheet.create({
     padding: 30,
     borderRadius: 20,
     marginVertical: 12,
-    shadowColor: '#39298c',
+    shadowColor: DARK_PURPLE,
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.2,
     shadowRadius: 6,
@@ -305,7 +311,7 @@ const styles = StyleSheet.create({
     borderRadius: 32,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#39298c',
+    shadowColor: DARK_PURPLE,
     shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.4,
     shadowRadius: 5,
@@ -328,7 +334,6 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 6,
     elevation: 8,
-    fontFamily: 'SpaceMono',
   },
   input: {
     borderWidth: 1,
@@ -337,8 +342,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 10,
     fontSize: 16,
-    backgroundColor: '#EDE6F6',
-    fontFamily: 'SpaceMono',
+    backgroundColor: LIGHT_PURPLE,
   },
   buttonRow: {
     flexDirection: 'row',
