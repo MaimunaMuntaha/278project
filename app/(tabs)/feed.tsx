@@ -149,9 +149,21 @@ export default function Feed() {
           {project.title}
         </ThemedText>
 
-        <ThemedText type="subtitle" style={{ paddingBottom: 20 }}>
-          {project.tags}
-        </ThemedText>
+        <View
+          style={{
+            flexDirection: 'row',
+            gap: 8,
+            paddingBottom: 10,
+          }}
+        >
+          {/* This splits the tags by commas for the display:*/}
+          {project.tags.split(',').map((tag, i) => (
+            <View key={i} style={styles.tag}>
+              <ThemedText style={styles.tagText}>{tag}</ThemedText>
+            </View>
+          ))}
+        </View>
+
         <ThemedText>{project.description}</ThemedText>
         <TouchableOpacity
           style={styles.chatButton}
@@ -161,7 +173,9 @@ export default function Feed() {
             )
           }
         >
-          <ThemedText style={{ color: 'white' }}>Collab with Me</ThemedText>
+          <ThemedText style={{ color: 'white' }}>
+            Request to Join Project
+          </ThemedText>
         </TouchableOpacity>
       </Animated.View>
     );
@@ -348,6 +362,21 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     marginTop: 16,
+  },
+  tag: {
+    backgroundColor: 'white',
+    padding: 10,
+    borderRadius: 14,
+    marginRight: 8,
+    marginBottom: 8,
+    shadowColor: DARK_PURPLE,
+    shadowOpacity: 0.3,
+    shadowRadius: 3,
+    borderColor: DARK_PURPLE,
+  },
+  tagText: {
+    fontSize: 16,
+    color: DARK_PURPLE,
   },
   noMoreProjects: {
     marginTop: 50,
