@@ -15,6 +15,7 @@ import { Ionicons } from '@expo/vector-icons';
 import ParallaxScrollView from '@/components/ParallaxScrollView';
 import { ThemedText } from '@/components/ThemedText';
 import { ThemedView } from '@/components/ThemedView';
+import { router } from 'expo-router';
 
 const SCREEN_WIDTH = Dimensions.get('window').width; //get the width of the screen being used to add dynamic changes to frontend ui
 const SWIPE_THRESHOLD = 0.1 * SCREEN_WIDTH; //how we can style projects currently: tinder-esque
@@ -59,6 +60,8 @@ export default function Feed() {
   const [title, setTitle] = useState('');
   const [tags, setTags] = useState('');
   const [description, setDescription] = useState('');
+  const [searchText, setSearchText] = useState('');
+
 
   //for swiping and finding projects feature:
   const position = useRef(new Animated.ValueXY()).current;
@@ -117,6 +120,12 @@ export default function Feed() {
     setTitle('');
     setTags('');
     setDescription('');
+  };
+
+  const handleSearch = (text: string) => {
+    setSearchText(text);
+    if (text.trim() === '') return;
+    router.push(`/search-results?query=${encodeURIComponent(text)}`);
   };
 
   //Swipe through projectas:
@@ -197,6 +206,25 @@ export default function Feed() {
             Welcome, John Doe
           </ThemedText>
         </ThemedView>
+        <TextInput
+          placeholder="Search projects..."
+          value={searchText}
+          onChangeText={setSearchText}
+          onSubmitEditing={() => {
+            if (searchText.trim().length >= 2) {
+              router.push(`/search-results?query=${encodeURIComponent(searchText.trim())}`);
+            }
+          }}
+          returnKeyType="search"
+          style={{
+            borderWidth: 1,
+            borderColor: '#ccc',
+            borderRadius: 8,
+            padding: 12,
+            margin: 16,
+            backgroundColor: '#fff',
+          }}
+/>
 
         <View style={styles.feedContainer}>{projectSwipe()}</View>
       </ParallaxScrollView>
