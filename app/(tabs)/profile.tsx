@@ -24,7 +24,7 @@ export default function ProfileScreen() {
   const [photoUri, setPhotoUri] = useState<string | undefined>();
   const [bio, setBio] = useState('I love building social apps!');
   const [tags, setTags] = useState<string[]>([
-    'Earth System',
+    'Earth Systems',
     'Freelance',
     'Miscellaneous',
   ]);
