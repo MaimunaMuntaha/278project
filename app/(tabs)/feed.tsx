@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState } from 'react';
 import {
   Image,
   StyleSheet,
@@ -6,9 +6,7 @@ import {
   Modal,
   View,
   TextInput,
-  Button,
-  Animated,
-  PanResponder,
+  FlatList,
   Dimensions,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -17,9 +15,8 @@ import { ThemedText } from '@/components/ThemedText';
 import { ThemedView } from '@/components/ThemedView';
 import { router } from 'expo-router';
 
-const SCREEN_WIDTH = Dimensions.get('window').width; //get the width of the screen being used to add dynamic changes to frontend ui
-const SWIPE_THRESHOLD = 0.1 * SCREEN_WIDTH; //how we can style projects currently: tinder-esque
-const LIGHT_PURPLE = '#e7e0ec'; //for the colors in style sheet
+const SCREEN_WIDTH = Dimensions.get('window').width;
+const LIGHT_PURPLE = '#e7e0ec';
 const DARK_PURPLE = '#6750a4';
 
 const initialProjects = [
@@ -33,7 +30,7 @@ const initialProjects = [
   {
     id: 2,
     title: 'Song Writing',
-    tags: 'Music,  Piano, Producer',
+    tags: 'Music, Piano, Producer',
     description:
       'Hey! I really want to produce a song, but I need a really good piano player.',
   },
@@ -56,63 +53,11 @@ const initialProjects = [
 export default function Feed() {
   const [modal, setModal] = useState(false);
   const [projects, setProjects] = useState(initialProjects);
-  const [initialProjectList] = useState(initialProjects);
   const [title, setTitle] = useState('');
   const [tags, setTags] = useState('');
   const [description, setDescription] = useState('');
   const [searchText, setSearchText] = useState('');
 
-
-  //for swiping and finding projects feature:
-  const position = useRef(new Animated.ValueXY()).current;
-
-  const panResponder = useRef(
-    PanResponder.create({
-      onMoveShouldSetPanResponder: (_, gesture) => Math.abs(gesture.dx) > 10,
-      onPanResponderMove: Animated.event(
-        [null, { dx: position.x, dy: position.y }],
-        {
-          useNativeDriver: false,
-        },
-      ),
-      onPanResponderRelease: (_, gesture) => {
-        if (gesture.dx > SWIPE_THRESHOLD) {
-          forceSwipe('right');
-        } else if (gesture.dx < -SWIPE_THRESHOLD) {
-          forceSwipe('left');
-        } else {
-          resetPosition();
-        }
-      },
-    }),
-  ).current;
-
-  //Swiping and user interactivity limit:
-  const forceSwipe = (direction: 'left' | 'right') => {
-    const x = direction === 'right' ? SCREEN_WIDTH : -SCREEN_WIDTH;
-    Animated.timing(position, {
-      toValue: { x, y: 0 },
-      duration: 250,
-      useNativeDriver: false,
-    }).start(() => onSwipeComplete(direction));
-  };
-
-  const resetPosition = () => {
-    Animated.spring(position, {
-      toValue: { x: 0, y: 0 },
-      useNativeDriver: false,
-    }).start();
-  };
-
-  const onSwipeComplete = (direction: 'left' | 'right') => {
-    const swipedProject = projects[0];
-    console.log(`Swiped ${direction}:`, swipedProject.title);
-
-    setProjects((prevProjects) => prevProjects.slice(1));
-    position.setValue({ x: 0, y: 0 });
-  };
-
-  // Make a new post:
   const handlePost = () => {
     console.log('Post submitted:', { title, tags, description });
     setModal(false);
@@ -128,67 +73,40 @@ export default function Feed() {
     router.push(`/search-results?query=${encodeURIComponent(text)}`);
   };
 
-  //Swipe through projectas:
-  const projectSwipe = () => {
-    if (projects.length === 0) {
-      return (
-        <View style={styles.noMoreProjects}>
-          <ThemedText type="subtitle">
-            There's no more projects available!!
-          </ThemedText>
-          <TouchableOpacity
-            style={styles.refreshButton}
-            onPress={() => setProjects(initialProjectList)}
-          >
-            <ThemedText style={{ color: 'white' }}>
-              Want to look at the available projects again?
-            </ThemedText>
-          </TouchableOpacity>
-        </View>
-      );
-    }
-    //start with first project: index 0
-    const project = projects[0];
-    return (
-      <Animated.View
-        {...panResponder.panHandlers}
-        style={[styles.card, position.getLayout()]}
+  const renderProject = ({ item }) => (
+    <View style={styles.card}>
+      <ThemedText type="title" style={{ paddingBottom: 20 }}>
+        {item.title}
+      </ThemedText>
+      <View
+        style={{
+          flexDirection: 'row',
+          gap: 8,
+          flexWrap: 'wrap',
+          paddingBottom: 10,
+        }}
       >
-        <ThemedText type="title" style={{ paddingBottom: 20 }}>
-          {project.title}
+        {item.tags.split(',').map((tag, i) => (
+          <View key={i} style={styles.tag}>
+            <ThemedText style={styles.tagText}>{tag.trim()}</ThemedText>
+          </View>
+        ))}
+      </View>
+      <ThemedText>{item.description}</ThemedText>
+      <TouchableOpacity
+        style={styles.chatButton}
+        onPress={() =>
+          console.log(
+            `Chat with the poster for the following project: ${item.title}`,
+          )
+        }
+      >
+        <ThemedText style={{ color: 'white' }}>
+          Request to Join Project
         </ThemedText>
-
-        <View
-          style={{
-            flexDirection: 'row',
-            gap: 8,
-            paddingBottom: 10,
-          }}
-        >
-          {/* This splits the tags by commas for the display:*/}
-          {project.tags.split(',').map((tag, i) => (
-            <View key={i} style={styles.tag}>
-              <ThemedText style={styles.tagText}>{tag}</ThemedText>
-            </View>
-          ))}
-        </View>
-
-        <ThemedText>{project.description}</ThemedText>
-        <TouchableOpacity
-          style={styles.chatButton}
-          onPress={() =>
-            console.log(
-              `Chat with the poster for the following project: ${project.title}`,
-            )
-          }
-        >
-          <ThemedText style={{ color: 'white' }}>
-            Request to Join Project
-          </ThemedText>
-        </TouchableOpacity>
-      </Animated.View>
-    );
-  };
+      </TouchableOpacity>
+    </View>
+  );
 
   return (
     <ThemedView style={{ flex: 1 }}>
@@ -212,7 +130,9 @@ export default function Feed() {
           onChangeText={setSearchText}
           onSubmitEditing={() => {
             if (searchText.trim().length >= 2) {
-              router.push(`/search-results?query=${encodeURIComponent(searchText.trim())}`);
+              router.push(
+                `/search-results?query=${encodeURIComponent(searchText.trim())}`,
+              );
             }
           }}
           returnKeyType="search"
@@ -224,12 +144,32 @@ export default function Feed() {
             margin: 16,
             backgroundColor: '#fff',
           }}
-/>
-
-        <View style={styles.feedContainer}>{projectSwipe()}</View>
+        />
+        {/* How the posts should appear through Flatlist (will be clearer when backend is created and projects can be added to backend) */}
+        <FlatList
+          data={projects}
+          keyExtractor={(item) => item.id.toString()}
+          contentContainerStyle={styles.feedContainer}
+          renderItem={renderProject}
+          ListEmptyComponent={
+            <View style={styles.noMoreProjects}>
+              <ThemedText type="subtitle">
+                There's no more projects available!!
+              </ThemedText>
+              <TouchableOpacity
+                style={styles.refreshButton}
+                onPress={() => setProjects(initialProjects)}
+              >
+                <ThemedText style={{ color: 'white' }}>
+                  Want to look at the available projects again?
+                </ThemedText>
+              </TouchableOpacity>
+            </View>
+          }
+        />
       </ParallaxScrollView>
 
-      {/* Button to add a project */}
+      {/*This is the add posts button */}
       <TouchableOpacity
         style={styles.floatingButton}
         onPress={() => setModal(true)}
@@ -237,16 +177,15 @@ export default function Feed() {
         <Ionicons name="add" size={32} color="white" />
       </TouchableOpacity>
 
-      {/* Create a modal that appears when clicking the "+" button */}
+      {/*When adding a post, a modal appears */}
       <Modal
         visible={modal}
         animationType="slide"
-        onRequestClose={() => setModal(false)} // initially the modal is not visible unless the user wants to make a project
+        onRequestClose={() => setModal(false)}
       >
         <View style={styles.modalStyle}>
           <View style={styles.modalContent}>
             <ThemedText type="title">Create New Project</ThemedText>
-
             <TextInput
               placeholder="Title"
               value={title}
