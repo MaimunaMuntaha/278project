@@ -15,13 +15,14 @@ import {
 } from 'react-native-paper';
 
 // Type definition for request items
-interface RequestItem {
+export interface RequestItem {
   id: string;
   name: string;
   message: string;
   avatar: any;
   project: string;
   timestamp: string;
+  startDM?: boolean; // Flag for DM conversations
 }
 
 // Sample request data
@@ -85,8 +86,14 @@ export const ProjectRequests: React.FC<ProjectRequestsProps> = ({
     // Remove from requests list
     setRequests(requests.filter(req => req.id !== request.id));
     
-    // Convert to chat and navigate
+    // Call the parent component's onAcceptRequest
     onAcceptRequest(request);
+  };
+  
+  // Handle starting a DM conversation
+  const handleStartDM = (request: RequestItem) => {
+    // Call the parent component's onAcceptRequest with a special flag
+    onAcceptRequest({...request, startDM: true});
   };
   
   // Render each request item
@@ -103,6 +110,13 @@ export const ProjectRequests: React.FC<ProjectRequestsProps> = ({
             </View>
           </View>
           <View style={styles.actionButtons}>
+            <IconButton
+              icon="message-outline"
+              size={24}
+              iconColor={theme.colors.secondary}
+              onPress={() => handleStartDM(item)}
+              style={[styles.actionButton, styles.messageButton]}
+            />
             <IconButton
               icon="close"
               size={24}
@@ -127,42 +141,43 @@ export const ProjectRequests: React.FC<ProjectRequestsProps> = ({
   );
   
   return (
-    <ThemedView style={styles.container}>
-      {/* App Bar */}
+    <>
       <Appbar.Header>
         <Appbar.BackAction onPress={onBack} />
         <Appbar.Content title="Project Requests" />
       </Appbar.Header>
       
-      {requests.length > 0 ? (
-        <FlatList
-          data={requests}
-          renderItem={renderRequestItem}
-          keyExtractor={(item) => item.id}
-          style={styles.requestsList}
-        />
-      ) : (
-        <View style={styles.emptyContainer}>
-          <Text style={styles.emptyText}>No pending project requests</Text>
-        </View>
-      )}
-      
-      {/* Confirmation Dialog */}
-      <Portal>
-        <Dialog visible={dialogVisible} onDismiss={() => setDialogVisible(false)}>
-          <Dialog.Title>Decline Request?</Dialog.Title>
-          <Dialog.Content>
-            <Text variant="bodyMedium">
-              Are you sure you want to decline this request from {selectedRequest?.name}?
-            </Text>
-          </Dialog.Content>
-          <Dialog.Actions>
-            <Button onPress={() => setDialogVisible(false)}>Cancel</Button>
-            <Button onPress={confirmDecline}>Decline</Button>
-          </Dialog.Actions>
-        </Dialog>
-      </Portal>
-    </ThemedView>
+      <ThemedView style={styles.container}>
+        {requests.length > 0 ? (
+          <FlatList
+            data={requests}
+            renderItem={renderRequestItem}
+            keyExtractor={(item) => item.id}
+            style={styles.requestsList}
+          />
+        ) : (
+          <View style={styles.emptyContainer}>
+            <Text style={styles.emptyText}>No pending project requests</Text>
+          </View>
+        )}
+        
+        {/* Confirmation Dialog */}
+        <Portal>
+          <Dialog visible={dialogVisible} onDismiss={() => setDialogVisible(false)}>
+            <Dialog.Title>Decline Request?</Dialog.Title>
+            <Dialog.Content>
+              <Text variant="bodyMedium">
+                Are you sure you want to decline this request from {selectedRequest?.name}?
+              </Text>
+            </Dialog.Content>
+            <Dialog.Actions>
+              <Button onPress={() => setDialogVisible(false)}>Cancel</Button>
+              <Button onPress={confirmDecline}>Decline</Button>
+            </Dialog.Actions>
+          </Dialog>
+        </Portal>
+      </ThemedView>
+    </>
   );
 };
 
@@ -221,6 +236,9 @@ const styles = StyleSheet.create({
   },
   acceptButton: {
     backgroundColor: 'rgba(76, 175, 80, 0.1)',
+  },
+  messageButton: {
+    backgroundColor: 'rgba(33, 150, 243, 0.1)',
   },
   emptyContainer: {
     flex: 1,

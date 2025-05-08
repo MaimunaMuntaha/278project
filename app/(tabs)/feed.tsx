@@ -8,16 +8,25 @@ import {
   TextInput,
   FlatList,
   Dimensions,
+  Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import ParallaxScrollView from '@/components/ParallaxScrollView';
 import { ThemedText } from '@/components/ThemedText';
 import { ThemedView } from '@/components/ThemedView';
 import { router } from 'expo-router';
+import ProjectRequestModal from '@/components/ProjectRequestModal';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 const LIGHT_PURPLE = '#e7e0ec';
 const DARK_PURPLE = '#6750a4';
+
+interface Project {
+  id: number;
+  title: string;
+  tags: string;
+  description: string;
+}
 
 const initialProjects = [
   {
@@ -51,16 +60,20 @@ const initialProjects = [
 ];
 
 export default function Feed() {
-  const [modal, setModal] = useState(false);
+  const [createModal, setCreateModal] = useState(false);
   const [projects, setProjects] = useState(initialProjects);
   const [title, setTitle] = useState('');
   const [tags, setTags] = useState('');
   const [description, setDescription] = useState('');
   const [searchText, setSearchText] = useState('');
+  
+  // State for join request modal
+  const [requestModalVisible, setRequestModalVisible] = useState(false);
+  const [selectedProject, setSelectedProject] = useState<Project | null>(null);
 
   const handlePost = () => {
     console.log('Post submitted:', { title, tags, description });
-    setModal(false);
+    setCreateModal(false);
     setProjects([{ id: Date.now(), title, tags, description }, ...projects]);
     setTitle('');
     setTags('');
@@ -72,8 +85,31 @@ export default function Feed() {
     if (text.trim() === '') return;
     router.push(`/search-results?query=${encodeURIComponent(text)}`);
   };
+  
+  // Handle opening the request modal
+  const openRequestModal = (project: Project) => {
+    setSelectedProject(project);
+    setRequestModalVisible(true);
+  };
+  
+  // Handle sending a join request
+  const handleSendRequest = (message: string) => {
+    console.log('Request sent for project:', selectedProject?.title);
+    console.log('Message:', message);
+    
+    // Here you would typically send this to your backend
+    // For now, we'll just show a success message
+    setRequestModalVisible(false);
+    
+    // Show success alert
+    Alert.alert(
+      "Request Sent",
+      "Your request to join this project has been sent. The project creator will be in touch if they accept.",
+      [{ text: "OK" }]
+    );
+  };
 
-  const renderProject = ({ item }) => (
+  const renderProject = ({ item }: { item: Project }) => (
     <View style={styles.card}>
       <ThemedText type="title" style={{ paddingBottom: 20 }}>
         {item.title}
@@ -95,11 +131,7 @@ export default function Feed() {
       <ThemedText>{item.description}</ThemedText>
       <TouchableOpacity
         style={styles.chatButton}
-        onPress={() =>
-          console.log(
-            `Chat with the poster for the following project: ${item.title}`,
-          )
-        }
+        onPress={() => openRequestModal(item)}
       >
         <ThemedText style={{ color: 'white' }}>
           Request to Join Project
@@ -116,11 +148,12 @@ export default function Feed() {
           <Image
             source={require('@/assets/images/1.png')}
             style={styles.reactLogo}
+            resizeMode="contain"
           />
         }
       >
         <ThemedView style={styles.titleContainer}>
-          <ThemedText type="title" style={{ fontSize: 30, color: '#1D3D47' }}>
+          <ThemedText type="title" style={{ fontSize: 30, color: '#1D3D47', marginTop: 20 }}>
             Welcome, John Doe
           </ThemedText>
         </ThemedView>
@@ -172,16 +205,16 @@ export default function Feed() {
       {/*This is the add posts button */}
       <TouchableOpacity
         style={styles.floatingButton}
-        onPress={() => setModal(true)}
+        onPress={() => setCreateModal(true)}
       >
         <Ionicons name="add" size={32} color="white" />
       </TouchableOpacity>
 
       {/*When adding a post, a modal appears */}
       <Modal
-        visible={modal}
+        visible={createModal}
         animationType="slide"
-        onRequestClose={() => setModal(false)}
+        onRequestClose={() => setCreateModal(false)}
       >
         <View style={styles.modalStyle}>
           <View style={styles.modalContent}>
@@ -209,7 +242,7 @@ export default function Feed() {
             <View style={styles.buttonRow}>
               <TouchableOpacity
                 style={styles.chatButton}
-                onPress={() => setModal(false)}
+                onPress={() => setCreateModal(false)}
               >
                 <ThemedText style={{ color: 'white' }}>Cancel</ThemedText>
               </TouchableOpacity>
@@ -220,6 +253,16 @@ export default function Feed() {
           </View>
         </View>
       </Modal>
+      
+      {/* Join Project Request Modal */}
+      {selectedProject && (
+        <ProjectRequestModal
+          visible={requestModalVisible}
+          projectTitle={selectedProject.title}
+          onClose={() => setRequestModalVisible(false)}
+          onSend={handleSendRequest}
+        />
+      )}
     </ThemedView>
   );
 }
