@@ -179,12 +179,33 @@ export default function Feed() {
           }}
         />
         {/* How the posts should appear through Flatlist (will be clearer when backend is created and projects can be added to backend) */}
-        <FlatList
-          data={projects}
-          keyExtractor={(item) => item.id.toString()}
-          contentContainerStyle={styles.feedContainer}
-          renderItem={renderProject}
-          ListEmptyComponent={
+        <View style={styles.feedContainer}>
+          {projects.length > 0 ? (
+            projects.map(project => (
+              <View key={project.id.toString()} style={styles.card}>
+                <ThemedText type="title" style={{ paddingBottom: 20 }}>
+                  {project.title}
+                </ThemedText>
+                {/* Rest of your project card content */}
+                <View style={{flexDirection: 'row', gap: 8, flexWrap: 'wrap', paddingBottom: 10}}>
+                  {project.tags.split(',').map((tag, i) => (
+                    <View key={i} style={styles.tag}>
+                      <ThemedText style={styles.tagText}>{tag.trim()}</ThemedText>
+                    </View>
+                  ))}
+                </View>
+                <ThemedText>{project.description}</ThemedText>
+                <TouchableOpacity
+                  style={styles.chatButton}
+                  onPress={() => openRequestModal(project)}
+                >
+                  <ThemedText style={{ color: 'white' }}>
+                    Request to Join Project
+                  </ThemedText>
+                </TouchableOpacity>
+              </View>
+            ))
+          ) : (
             <View style={styles.noMoreProjects}>
               <ThemedText type="subtitle">
                 There's no more projects available!!
@@ -198,8 +219,8 @@ export default function Feed() {
                 </ThemedText>
               </TouchableOpacity>
             </View>
-          }
-        />
+          )}
+        </View>
       </ParallaxScrollView>
 
       {/*This is the add posts button */}

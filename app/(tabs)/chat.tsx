@@ -65,19 +65,6 @@ const chatData: ChatItem[] = [
     type: 'group',
     lastMessageTime: new Date(2025, 4, 6, 16, 45), // Two days ago
   },
-  // Example of a direct message for a request discussion
-  {
-    id: '4',
-    name: 'Sam A.',
-    participants: 'Sam A.',
-    avatar: require('@/assets/images/1.png'),
-    newMessages: 2,
-    status: 'conversation',
-    type: 'direct',
-    projectId: 'essay-writing-project',
-    requestId: '1', // Link to the original request
-    lastMessageTime: new Date(2025, 4, 8, 10, 5), // Today at 10:05 AM
-  },
 ];
 
 export default function ChatScreen(): JSX.Element {
@@ -121,7 +108,7 @@ export default function ChatScreen(): JSX.Element {
           participants: request.name,
           avatar: request.avatar,
           newMessages: 0,
-          status: 'conversation',
+          status: 'reachedOut',
           type: 'direct',
           projectId: request.project.toLowerCase().replace(/\s+/g, '-'),
           requestId: request.id,
@@ -222,7 +209,7 @@ export default function ChatScreen(): JSX.Element {
       case 'conversation':
         return theme.colors.primary;
       case 'reachedOut':
-        return theme.colors.error || '#ffcc00';
+        return '#ffcc00';
       default:
         return 'transparent';
     }
@@ -235,12 +222,23 @@ export default function ChatScreen(): JSX.Element {
     >
       <Surface style={styles.chatItem} elevation={0}>
         <View style={styles.avatarContainer}>
-          <Avatar.Image size={50} source={item.avatar} />
+          <Avatar.Text 
+            size={50} 
+            label={item.type === 'group' 
+              ? item.name.split(' ').slice(0, 2).map(word => word[0]).join('')
+              : item.name.split(' ').map(word => word[0]).join('').slice(0, 2)
+            }
+            // Generate a consistent but random color based on the item id
+            color="#fff"
+            style={{ 
+              backgroundColor: `hsl(${parseInt(item.id, 36) % 360}, 70%, 60%)` 
+            }}
+          />
           {item.status !== 'none' && (
             <Badge
               style={[
-                styles.statusBadge,
-                { backgroundColor: getStatusColor(item.status) }
+          styles.statusBadge,
+          { backgroundColor: getStatusColor(item.status) }
               ]}
               size={12}
             />

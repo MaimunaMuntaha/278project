@@ -92,7 +92,9 @@ export const ProjectRequests: React.FC<ProjectRequestsProps> = ({
   
   // Handle starting a DM conversation
   const handleStartDM = (request: RequestItem) => {
-    // Call the parent component's onAcceptRequest with a special flag
+    // Rather than immediately accept, just go to a chat with the user
+
+
     onAcceptRequest({...request, startDM: true});
   };
   
