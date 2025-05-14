@@ -26,6 +26,7 @@ interface Project {
   title: string;
   tags: string;
   description: string;
+  pfp?: any;
 }
 
 const initialProjects = [
@@ -35,6 +36,8 @@ const initialProjects = [
     tags: 'React, Mobile',
     description:
       'Hey! Please work with me to code a social app for my CS 278 class. I need around 2-3 project partners!',
+    username: 'John Doe',
+    pfp: require('@/assets/images/pfp.png'),
   },
   {
     id: 2,
@@ -42,6 +45,8 @@ const initialProjects = [
     tags: 'Music, Piano, Producer',
     description:
       'Hey! I really want to produce a song, but I need a really good piano player.',
+    username: 'John Doe',
+    pfp: require('@/assets/images/pfp.png'),
   },
   {
     id: 3,
@@ -49,6 +54,8 @@ const initialProjects = [
     tags: 'Climate, Maps',
     description:
       'Hey, Im learning ArcGIS for the first time and would really like help looking through this.',
+    username: 'John Doe',
+    pfp: require('@/assets/images/pfp.png'),
   },
   {
     id: 4,
@@ -56,6 +63,8 @@ const initialProjects = [
     tags: 'Education, VR',
     description:
       'Hi! Ive never coded in Unity before, but I really want to make a VR simulation for my thesis. Chat with me if interested.',
+    username: 'John Doe',
+    pfp: require('@/assets/images/pfp.png'),
   },
 ];
 
@@ -66,7 +75,7 @@ export default function Feed() {
   const [tags, setTags] = useState('');
   const [description, setDescription] = useState('');
   const [searchText, setSearchText] = useState('');
-  
+
   // State for join request modal
   const [requestModalVisible, setRequestModalVisible] = useState(false);
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
@@ -74,7 +83,17 @@ export default function Feed() {
   const handlePost = () => {
     console.log('Post submitted:', { title, tags, description });
     setCreateModal(false);
-    setProjects([{ id: Date.now(), title, tags, description }, ...projects]);
+    setProjects([
+      {
+        id: Date.now(),
+        title,
+        tags,
+        description,
+        username: 'John Doe',
+        pfp: require('@/assets/images/pfp.png'),
+      },
+      ...projects,
+    ]);
     setTitle('');
     setTags('');
     setDescription('');
@@ -85,27 +104,27 @@ export default function Feed() {
     if (text.trim() === '') return;
     router.push(`/search-results?query=${encodeURIComponent(text)}`);
   };
-  
+
   // Handle opening the request modal
   const openRequestModal = (project: Project) => {
     setSelectedProject(project);
     setRequestModalVisible(true);
   };
-  
+
   // Handle sending a join request
   const handleSendRequest = (message: string) => {
     console.log('Request sent for project:', selectedProject?.title);
     console.log('Message:', message);
-    
+
     // Here you would typically send this to your backend
     // For now, we'll just show a success message
     setRequestModalVisible(false);
-    
+
     // Show success alert
     Alert.alert(
-      "Request Sent",
-      "Your request to join this project has been sent. The project creator will be in touch if they accept.",
-      [{ text: "OK" }]
+      'Request Sent',
+      'Your request to join this project has been sent. The project creator will be in touch if they accept.',
+      [{ text: 'OK' }],
     );
   };
 
@@ -153,7 +172,10 @@ export default function Feed() {
         }
       >
         <ThemedView style={styles.titleContainer}>
-          <ThemedText type="title" style={{ fontSize: 30, color: '#1D3D47', marginTop: 20 }}>
+          <ThemedText
+            type="title"
+            style={{ fontSize: 30, color: '#1D3D47', marginTop: 20 }}
+          >
             Welcome, John Doe
           </ThemedText>
         </ThemedView>
@@ -181,16 +203,50 @@ export default function Feed() {
         {/* How the posts should appear through Flatlist (will be clearer when backend is created and projects can be added to backend) */}
         <View style={styles.feedContainer}>
           {projects.length > 0 ? (
-            projects.map(project => (
+            projects.map((project) => (
               <View key={project.id.toString()} style={styles.card}>
+                <View
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    marginBottom: 12,
+                  }}
+                >
+                  <Image
+                    source={
+                      project.pfp
+                        ? project.pfp
+                        : require('@/assets/images/pfp.png')
+                    }
+                    style={{
+                      width: 40,
+                      height: 40,
+                      borderRadius: 20,
+                      marginRight: 12,
+                    }}
+                  />
+                  <ThemedText style={{ fontWeight: '600', fontSize: 16 }}>
+                    {project.username}
+                  </ThemedText>
+                </View>
+
                 <ThemedText type="title" style={{ paddingBottom: 20 }}>
                   {project.title}
                 </ThemedText>
                 {/* Rest of your project card content */}
-                <View style={{flexDirection: 'row', gap: 8, flexWrap: 'wrap', paddingBottom: 10}}>
+                <View
+                  style={{
+                    flexDirection: 'row',
+                    gap: 8,
+                    flexWrap: 'wrap',
+                    paddingBottom: 10,
+                  }}
+                >
                   {project.tags.split(',').map((tag, i) => (
                     <View key={i} style={styles.tag}>
-                      <ThemedText style={styles.tagText}>{tag.trim()}</ThemedText>
+                      <ThemedText style={styles.tagText}>
+                        {tag.trim()}
+                      </ThemedText>
                     </View>
                   ))}
                 </View>
@@ -274,7 +330,7 @@ export default function Feed() {
           </View>
         </View>
       </Modal>
-      
+
       {/* Join Project Request Modal */}
       {selectedProject && (
         <ProjectRequestModal
