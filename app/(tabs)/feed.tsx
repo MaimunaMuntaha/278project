@@ -24,6 +24,8 @@ import {
   query,
   orderBy,
   addDoc,
+  doc,
+  getDoc,
   serverTimestamp,
 } from 'firebase/firestore';
 
@@ -47,11 +49,70 @@ export default function Feed() {
   const [tags, setTags] = useState('');
   const [description, setDescription] = useState('');
   const [searchText, setSearchText] = useState('');
+  const { user: authUser } = useAuth(); // Make sure this is declared at the top
+  useEffect(() => {
+    const q = query(collection(db, 'posts'), orderBy('createdAt', 'desc'));
 
-  // State for join request modal
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const fetchedProjects: Project[] = snapshot.docs.map((doc) => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          title: data.title,
+          tags: data.tags,
+          description: data.description,
+          username: data.username,
+          pfp: data.photoURL
+            ? { uri: data.photoURL }
+            : require('@/assets/images/pfp.png'),
+        };
+      });
+
+      setProjects(fetchedProjects);
+    });
+
+    return () => unsubscribe();
+  }, []);
+  useEffect(() => {
+    const fetchUserTags = async () => {
+      if (!authUser) return;
+
+      try {
+        const userDoc = await getDoc(doc(db, 'users', authUser.uid));
+        if (userDoc.exists()) {
+          const data = userDoc.data();
+          const tagsFromDB = Array.isArray(data.tags)
+            ? data.tags.map((tag: string) => tag.trim().toLowerCase())
+            : [];
+          setUserTags(tagsFromDB);
+        }
+      } catch (error) {
+        console.error('Error fetching user tags:', error);
+      }
+    };
+
+    fetchUserTags();
+  }, [authUser]);
+
+  const [userTags, setUserTags] = useState<string[]>([]);
+
+  //post algorithm on feed: if the user has certain tags in common with posts, those get displayed first and THEN,
+  // if you don't share any common tags, then just sort based on firebase order (descending order of posts created)
+  const rankedProjects = [...projects].sort((a, b) => {
+    const aTags = a.tags.split(',').map((tag) => tag.trim().toLowerCase());
+    const bTags = b.tags.split(',').map((tag) => tag.trim().toLowerCase());
+
+    const aMatches = aTags.filter((tag) => userTags.includes(tag)).length;
+    const bMatches = bTags.filter((tag) => userTags.includes(tag)).length;
+
+    // Higher match count = higher rank (i.e., A should come earlier if I have 2 vs 1 tags in common)
+    if (aMatches !== bMatches) return bMatches - aMatches;
+
+    return 0;
+  });
+
   const [requestModalVisible, setRequestModalVisible] = useState(false);
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
-  const { user: authUser } = useAuth(); // Make sure this is declared at the top
 
   const handlePost = async () => {
     if (!authUser) {
@@ -84,10 +145,8 @@ export default function Feed() {
       setTags('');
       setDescription('');
       setCreateModal(false);
-      Alert.alert('Success', 'Your project has been posted.');
     } catch (error) {
       console.error('Error posting project:', error);
-      Alert.alert('Error', 'Failed to post your project.');
     }
   };
 
@@ -255,7 +314,7 @@ export default function Feed() {
             </View>
           </View>
 
-          {projects.map((project) => (
+          {rankedProjects.map((project) => (
             <View key={project.id.toString()} style={styles.card}>
               <View
                 style={{
