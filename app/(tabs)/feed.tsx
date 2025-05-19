@@ -98,7 +98,7 @@ export default function Feed() {
 
   //post algorithm on feed: if the user has certain tags in common with posts, those get displayed first and THEN,
   // if you don't share any common tags, then just sort based on firebase order (descending order of posts created)
-  const rankedProjects = [...projects].sort((a, b) => {
+  const projectAlgorithm = [...projects].sort((a, b) => {
     const aTags = a.tags.split(',').map((tag) => tag.trim().toLowerCase());
     const bTags = b.tags.split(',').map((tag) => tag.trim().toLowerCase());
 
@@ -304,8 +304,8 @@ export default function Feed() {
               </TouchableOpacity>
             </View>
           </View>
-          {/* The rest of algorithm established in rankedProjects  */}
-          {rankedProjects.map((project) => (
+          {/* The rest of algorithm established in projectAlgorithm  */}
+          {projectAlgorithm.map((project) => (
             <View key={project.id.toString()} style={styles.card}>
               <View
                 style={{
