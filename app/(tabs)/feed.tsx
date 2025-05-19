@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Image,
   StyleSheet,
@@ -16,61 +16,33 @@ import { ThemedText } from '@/components/ThemedText';
 import { ThemedView } from '@/components/ThemedView';
 import { router } from 'expo-router';
 import ProjectRequestModal from '@/components/ProjectRequestModal';
+import { db, storage, auth as firebaseAuth } from '../../firebase';
+import { useAuth } from '../_layout';
+import {
+  collection,
+  onSnapshot,
+  query,
+  orderBy,
+  addDoc,
+  serverTimestamp,
+} from 'firebase/firestore';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 const LIGHT_PURPLE = '#e7e0ec';
 const DARK_PURPLE = '#6750a4';
 
 interface Project {
-  id: number;
+  id: string;
   title: string;
   tags: string;
   description: string;
+  username: string;
   pfp?: any;
 }
 
-const initialProjects = [
-  {
-    id: 1,
-    title: 'CS 278 Assignment',
-    tags: 'React, Mobile',
-    description:
-      'Hey! Please work with me to code a social app for my CS 278 class. I need around 2-3 project partners!',
-    username: 'John Doe',
-    pfp: require('@/assets/images/pfp.png'),
-  },
-  {
-    id: 2,
-    title: 'Song Writing',
-    tags: 'Music, Piano, Producer',
-    description:
-      'Hey! I really want to produce a song, but I need a really good piano player.',
-    username: 'John Doe',
-    pfp: require('@/assets/images/pfp.png'),
-  },
-  {
-    id: 3,
-    title: 'ArcGIS Map Making',
-    tags: 'Climate, Maps',
-    description:
-      'Hey, Im learning ArcGIS for the first time and would really like help looking through this.',
-    username: 'John Doe',
-    pfp: require('@/assets/images/pfp.png'),
-  },
-  {
-    id: 4,
-    title: 'VR Study',
-    tags: 'Education, VR',
-    description:
-      'Hi! Ive never coded in Unity before, but I really want to make a VR simulation for my thesis. Chat with me if interested.',
-    username: 'John Doe',
-    pfp: require('@/assets/images/pfp.png'),
-  },
-];
-
 export default function Feed() {
   const [createModal, setCreateModal] = useState(false);
-  const [projects, setProjects] = useState(initialProjects);
+  const [projects, setProjects] = useState<Project[]>([]);
   const [title, setTitle] = useState('');
   const [tags, setTags] = useState('');
   const [description, setDescription] = useState('');
@@ -79,24 +51,44 @@ export default function Feed() {
   // State for join request modal
   const [requestModalVisible, setRequestModalVisible] = useState(false);
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
+  const { user: authUser } = useAuth(); // Make sure this is declared at the top
 
-  const handlePost = () => {
-    console.log('Post submitted:', { title, tags, description });
-    setCreateModal(false);
-    setProjects([
-      {
-        id: Date.now(),
-        title,
-        tags,
-        description,
-        username: 'John Doe',
-        pfp: require('@/assets/images/pfp.png'),
-      },
-      ...projects,
-    ]);
-    setTitle('');
-    setTags('');
-    setDescription('');
+  const handlePost = async () => {
+    if (!authUser) {
+      Alert.alert('Error', 'You must be logged in to post.');
+      return;
+    }
+
+    if (!title.trim() || !tags.trim() || !description.trim()) {
+      Alert.alert('Validation Error', 'Please fill out all fields.');
+      return;
+    }
+
+    try {
+      const newPost = {
+        title: title.trim(),
+        tags: tags.trim(),
+        description: description.trim(),
+        uid: authUser.uid,
+        username: authUser.displayName || 'Anonymous',
+        photoURL: authUser.photoURL || null,
+        createdAt: new Date(), // Or serverTimestamp() if preferred
+      };
+
+      await addDoc(collection(db, 'posts'), {
+        ...newPost,
+        createdAt: serverTimestamp(), // this will be consistent across timezones
+      });
+
+      setTitle('');
+      setTags('');
+      setDescription('');
+      setCreateModal(false);
+      Alert.alert('Success', 'Your project has been posted.');
+    } catch (error) {
+      console.error('Error posting project:', error);
+      Alert.alert('Error', 'Failed to post your project.');
+    }
   };
 
   const handleSearch = (text: string) => {
@@ -263,80 +255,62 @@ export default function Feed() {
             </View>
           </View>
 
-          {projects.length > 0 ? (
-            projects.map((project) => (
-              <View key={project.id.toString()} style={styles.card}>
-                <View
+          {projects.map((project) => (
+            <View key={project.id.toString()} style={styles.card}>
+              <View
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  marginBottom: 12,
+                }}
+              >
+                <Image
+                  source={
+                    project.pfp
+                      ? project.pfp
+                      : require('@/assets/images/pfp.png')
+                  }
                   style={{
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    marginBottom: 12,
+                    width: 40,
+                    height: 40,
+                    borderRadius: 20,
+                    marginRight: 12,
                   }}
-                >
-                  <Image
-                    source={
-                      project.pfp
-                        ? project.pfp
-                        : require('@/assets/images/pfp.png')
-                    }
-                    style={{
-                      width: 40,
-                      height: 40,
-                      borderRadius: 20,
-                      marginRight: 12,
-                    }}
-                  />
-                  <ThemedText style={{ fontWeight: '600', fontSize: 16 }}>
-                    {project.username}
-                  </ThemedText>
-                </View>
-
-                <ThemedText type="title" style={{ paddingBottom: 20 }}>
-                  {project.title}
+                />
+                <ThemedText style={{ fontWeight: '600', fontSize: 16 }}>
+                  {project.username}
                 </ThemedText>
-                {/* Rest of your project card content */}
-                <View
-                  style={{
-                    flexDirection: 'row',
-                    gap: 8,
-                    flexWrap: 'wrap',
-                    paddingBottom: 10,
-                  }}
-                >
-                  {project.tags.split(',').map((tag, i) => (
-                    <View key={i} style={styles.tag}>
-                      <ThemedText style={styles.tagText}>
-                        {tag.trim()}
-                      </ThemedText>
-                    </View>
-                  ))}
-                </View>
-                <ThemedText>{project.description}</ThemedText>
-                <TouchableOpacity
-                  style={styles.chatButton}
-                  onPress={() => openRequestModal(project)}
-                >
-                  <ThemedText style={{ color: 'white' }}>
-                    Request to Join Project
-                  </ThemedText>
-                </TouchableOpacity>
               </View>
-            ))
-          ) : (
-            <View style={styles.noMoreProjects}>
-              <ThemedText type="subtitle">
-                There's no more projects available!!
+
+              <ThemedText type="title" style={{ paddingBottom: 20 }}>
+                {project.title}
               </ThemedText>
+              {/* Rest of your project card content */}
+              <View
+                style={{
+                  flexDirection: 'row',
+                  gap: 8,
+                  flexWrap: 'wrap',
+                  paddingBottom: 10,
+                }}
+              >
+                {project.tags.split(',').map((tag, i) => (
+                  <View key={i} style={styles.tag}>
+                    <ThemedText style={styles.tagText}>{tag.trim()}</ThemedText>
+                  </View>
+                ))}
+              </View>
+              <ThemedText>{project.description}</ThemedText>
               <TouchableOpacity
-                style={styles.refreshButton}
-                onPress={() => setProjects(initialProjects)}
+                style={styles.chatButton}
+                onPress={() => openRequestModal(project)}
               >
                 <ThemedText style={{ color: 'white' }}>
-                  Want to look at the available projects again?
+                  Request to Join Project
                 </ThemedText>
               </TouchableOpacity>
             </View>
-          )}
+          ))}
         </View>
       </ParallaxScrollView>
 
