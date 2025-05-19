@@ -133,12 +133,12 @@ export default function Feed() {
         uid: authUser.uid,
         username: authUser.displayName || 'Anonymous',
         photoURL: authUser.photoURL || null,
-        createdAt: new Date(), // Or serverTimestamp() if preferred
+        createdAt: new Date(),
       };
 
       await addDoc(collection(db, 'posts'), {
         ...newPost,
-        createdAt: serverTimestamp(), // this will be consistent across timezones
+        createdAt: serverTimestamp(), // consistent across timezones
       });
 
       setTitle('');
@@ -156,27 +156,18 @@ export default function Feed() {
     router.push(`/search-results?query=${encodeURIComponent(text)}`);
   };
 
-  // Handle opening the request modal
+  // Open request to join project modal
   const openRequestModal = (project: Project) => {
     setSelectedProject(project);
     setRequestModalVisible(true);
   };
 
-  // Handle sending a join request
+  // Send a join request
   const handleSendRequest = (message: string) => {
     console.log('Request sent for project:', selectedProject?.title);
     console.log('Message:', message);
 
-    // Here you would typically send this to your backend
-    // For now, we'll just show a success message
     setRequestModalVisible(false);
-
-    // Show success alert
-    Alert.alert(
-      'Request Sent',
-      'Your request to join this project has been sent. The project creator will be in touch if they accept.',
-      [{ text: 'OK' }],
-    );
   };
 
   const renderProject = ({ item }: { item: Project }) => (
@@ -251,7 +242,7 @@ export default function Feed() {
             backgroundColor: '#fff',
           }}
         />
-        {/* How the posts should appear through Flatlist (will be clearer when backend is created and projects can be added to backend) */}
+        {/* The top most common project shared with user */}
         <View style={styles.feedContainer}>
           <View style={[styles.card, { backgroundColor: '#dfe7fd' }]}>
             <ThemedText
@@ -313,7 +304,7 @@ export default function Feed() {
               </TouchableOpacity>
             </View>
           </View>
-
+          {/* The rest of algorithm established in rankedProjects  */}
           {rankedProjects.map((project) => (
             <View key={project.id.toString()} style={styles.card}>
               <View
