@@ -1,8 +1,16 @@
+// app/index.tsx
 import { Redirect } from 'expo-router';
-
-/** Toggle this flag instead of commenting code everywhere. */
-const SHOW_LOGIN = true; // ← set to false to bypass login
+import { useAuth } from './_layout'; // Import useAuth from the layout
 
 export default function Index() {
-  return <Redirect href={SHOW_LOGIN ? '/login' : '/feed'} />;
+  const { user, loading } = useAuth();
+
+  if (loading) {
+    return null; // Or a loading spinner, splash screen, etc.
+  }
+
+  // If user is logged in, redirect to feed, otherwise to login.
+  // The redirection logic in RootLayoutNav will also handle this,
+  // but this provides an explicit entry point behavior.
+  return <Redirect href={user ? '/(tabs)/feed' : '/login'} />;
 }

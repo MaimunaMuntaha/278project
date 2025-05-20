@@ -1,5 +1,5 @@
-const { query } = useLocalSearchParams();
-console.log('query param:', query);
+// const { query } = useLocalSearchParams();
+// console.log('query param:', query);
 import { useLocalSearchParams } from 'expo-router';
 import { View, Text, FlatList, StyleSheet } from 'react-native';
 

@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { StyleSheet, FlatList, View, Image } from 'react-native';
+import { StyleSheet, FlatList, View, Image, Pressable } from 'react-native';
 import {
   Button,
   Surface,
@@ -9,14 +9,16 @@ import {
   Title,
   Divider,
   useTheme,
+  Chip,
 } from 'react-native-paper';
 import { ThemedView } from '@/components/ThemedView';
 import { ChatDetail } from '@/components/chat/ChatDetail';
-import { ProjectRequests } from '@/components/chat/ChatRequests';
+import { ProjectRequests, RequestItem } from '@/components/chat/ChatRequests';
 import { useIsFocused } from '@react-navigation/native';
 
 // Type definitions
 type ChatParticipantStatus = 'conversation' | 'reachedOut' | 'none';
+type ChatType = 'group' | 'direct'; // Added chat type
 
 export interface ChatItem {
   id: string;
@@ -25,6 +27,10 @@ export interface ChatItem {
   avatar: any; // For image require
   newMessages: number;
   status: ChatParticipantStatus;
+  type: ChatType; // Added chat type field
+  projectId?: string; // Optional field to link direct messages to their project
+  lastMessageTime?: Date; // For sorting chats by most recent message
+  requestId?: string; // For linking back to a request
 }
 
 // Mock chat data
@@ -36,6 +42,8 @@ const chatData: ChatItem[] = [
     avatar: require('@/assets/images/1.png'), // Make sure to create these assets
     newMessages: 3,
     status: 'conversation',
+    type: 'group',
+    lastMessageTime: new Date(2025, 4, 7, 14, 30), // Yesterday at 2:30 PM
   },
   {
     id: '2',
@@ -44,6 +52,8 @@ const chatData: ChatItem[] = [
     avatar: require('@/assets/images/1.png'),
     newMessages: 1,
     status: 'conversation',
+    type: 'group',
+    lastMessageTime: new Date(2025, 4, 7, 9, 15), // Yesterday at 9:15 AM
   },
   {
     id: '3',
@@ -52,12 +62,16 @@ const chatData: ChatItem[] = [
     avatar: require('@/assets/images/1.png'),
     newMessages: 0,
     status: 'reachedOut',
+    type: 'group',
+    lastMessageTime: new Date(2025, 4, 6, 16, 45), // Two days ago
   },
 ];
 
 export default function ChatScreen(): JSX.Element {
+  const [chats, setChats] = useState<ChatItem[]>(chatData);
   const [selectedChat, setSelectedChat] = useState<ChatItem | null>(null);
   const [showRequests, setShowRequests] = useState<boolean>(false);
+  const [requests, setRequests] = useState<Record<string, RequestItem>>({});
   const theme = useTheme();
 
   // Handle back navigation
@@ -67,6 +81,58 @@ export default function ChatScreen(): JSX.Element {
 
   const handleBackFromRequests = (): void => {
     setShowRequests(false);
+  };
+
+  // Function to handle project requests (accept or start DM)
+  const handleAcceptRequest = (request: RequestItem): void => {
+    // Store the request data for reference
+    setRequests(prev => ({
+      ...prev,
+      [request.id]: request
+    }));
+    
+    if (request.startDM) {
+      // This is a request to start a DM
+      // Check if a DM already exists for this request
+      const existingChat = chats.find(chat => chat.requestId === request.id);
+      
+      if (existingChat) {
+        // If DM already exists, just open it
+        setShowRequests(false);
+        setSelectedChat(existingChat);
+      } else {
+        // Create a new direct message chat
+        const newDirectChat: ChatItem = {
+          id: `dm-${Date.now()}`,
+          name: request.name,
+          participants: request.name,
+          avatar: request.avatar,
+          newMessages: 0,
+          status: 'reachedOut',
+          type: 'direct',
+          projectId: request.project.toLowerCase().replace(/\s+/g, '-'),
+          requestId: request.id,
+          lastMessageTime: new Date(), // Current time
+        };
+  
+        // Add the new chat to the list
+        setChats([...chats, newDirectChat]);
+        
+        // Close the requests screen and open the new chat
+        setShowRequests(false);
+        setSelectedChat(newDirectChat);
+      }
+    } else {
+      // This is an accept request - implement the logic to accept the project request
+      // (You might want to add code here to add the user to the project)
+      
+      // Remove any existing DM for this request
+      const updatedChats = chats.filter(chat => chat.requestId !== request.id);
+      setChats(updatedChats);
+      
+      // Close the requests screen
+      setShowRequests(false);
+    }
   };
 
   const isFocused = useIsFocused();
@@ -92,16 +158,47 @@ export default function ChatScreen(): JSX.Element {
     return (
       <ProjectRequests 
         onBack={handleBackFromRequests}
-        onAcceptRequest={() => console.log('Request accepted')}
+        onAcceptRequest={handleAcceptRequest}
       />
     );
   }
+
+  // Function to update a chat with a new message
+  const updateChatWithMessage = (chatId: string, messageText: string): void => {
+    // Find the chat to update
+    const updatedChats = chats.map(chat => {
+      if (chat.id === chatId) {
+        return {
+          ...chat,
+          lastMessageTime: new Date(),
+          newMessages: chat.newMessages + 1
+        };
+      }
+      return chat;
+    });
+    
+    // Sort chats by most recent message
+    const sortedChats = updatedChats.sort((a, b) => {
+      const timeA = a.lastMessageTime ? a.lastMessageTime.getTime() : 0;
+      const timeB = b.lastMessageTime ? b.lastMessageTime.getTime() : 0;
+      return timeB - timeA; // Sort in descending order (newest first)
+    });
+    
+    setChats(sortedChats);
+  };
+
+  // Used as a callback from ChatDetail when a message is sent
+  const handleMessageSent = (chatId: string, messageText: string): void => {
+    updateChatWithMessage(chatId, messageText);
+  };
 
   if (selectedChat) {
     return (
       <ChatDetail
         chat={selectedChat}
         onBack={handleBack}
+        onMessageSent={handleMessageSent}
+        requestData={selectedChat.requestId ? requests[selectedChat.requestId] : undefined}
       />
     );
   }
@@ -112,7 +209,7 @@ export default function ChatScreen(): JSX.Element {
       case 'conversation':
         return theme.colors.primary;
       case 'reachedOut':
-        return theme.colors.error || '#ffcc00';
+        return '#ffcc00';
       default:
         return 'transparent';
     }
@@ -120,37 +217,69 @@ export default function ChatScreen(): JSX.Element {
 
   // Render each chat item
   const renderChatItem = ({ item }: { item: ChatItem }): JSX.Element => (
-    <div
-      onClick={() => setSelectedChat(item)}
+    <Pressable
+      onPress={() => setSelectedChat(item)}
     >
       <Surface style={styles.chatItem} elevation={0}>
         <View style={styles.avatarContainer}>
-          <Avatar.Image size={50} source={item.avatar} />
+          <Avatar.Text 
+            size={50} 
+            label={item.type === 'group' 
+              ? item.name.split(' ').slice(0, 2).map(word => word[0]).join('')
+              : item.name.split(' ').map(word => word[0]).join('').slice(0, 2)
+            }
+            // Generate a consistent but random color based on the item id
+            color="#fff"
+            style={{ 
+              backgroundColor: `hsl(${parseInt(item.id, 36) % 360}, 70%, 60%)` 
+            }}
+          />
           {item.status !== 'none' && (
             <Badge
               style={[
-                styles.statusBadge,
-                { backgroundColor: getStatusColor(item.status) }
+          styles.statusBadge,
+          { backgroundColor: getStatusColor(item.status) }
               ]}
               size={12}
             />
           )}
         </View>
         
+        {/* TODO: Break into its own component? */}
         <View style={styles.chatInfo}>
           <View style={styles.chatHeader}>
-            <Text variant="titleMedium" style={styles.chatName}>{item.name}</Text>
+            <View style={styles.chatNameContainer}>
+              <Text variant="titleMedium" style={styles.chatName}>{item.name}</Text>
+              {item.type === 'direct' && (
+                <Chip 
+                  icon="account" 
+                  style={styles.chatTypeChip} 
+                  textStyle={styles.chatTypeText}
+                >
+                  DM
+                </Chip>
+              )}
+            </View>
             {item.newMessages > 0 && (
               <Text variant="labelSmall" style={styles.messageCount}>
                 {item.newMessages} new {item.newMessages === 1 ? 'message' : 'messages'}
               </Text>
             )}
           </View>
-          <Text variant="bodySmall" style={styles.participants}>{item.participants}</Text>
+          <Text variant="bodySmall" style={styles.participants}>
+            {item.type === 'direct' && item.projectId ? `Re: ${item.projectId.split('-').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')}` : item.participants}
+          </Text>
         </View>
       </Surface>
-    </div>
+    </Pressable>
   );
+  
+  // Sort chats by most recent message
+  const sortedChats = [...chats].sort((a, b) => {
+    const timeA = a.lastMessageTime ? a.lastMessageTime.getTime() : 0;
+    const timeB = b.lastMessageTime ? b.lastMessageTime.getTime() : 0;
+    return timeB - timeA; // Sort in descending order (newest first)
+  });
 
   return (
     <ThemedView style={styles.container}>
@@ -166,7 +295,7 @@ export default function ChatScreen(): JSX.Element {
 
       {/* Chat list */}
       <FlatList
-        data={chatData}
+        data={sortedChats}
         renderItem={renderChatItem}
         keyExtractor={(item) => item.id}
         style={styles.chatList}
@@ -220,6 +349,21 @@ const styles = StyleSheet.create({
   },
   chatName: {
     fontWeight: 'bold',
+    marginRight: 8,
+  },
+  chatNameContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  chatTypeChip: {
+    height: 28,
+    padding: 0,
+    marginLeft: 4,
+  },
+  chatTypeText: {
+    fontSize: 14,
+    lineHeight: 14,
+    padding: 2,
   },
   messageCount: {
     color: '#888',

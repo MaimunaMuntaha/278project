@@ -11,7 +11,10 @@ export default {
     userInterfaceStyle: 'automatic',
     newArchEnabled: true,
 
-    ios: { supportsTablet: true },
+    ios: {
+      supportsTablet: true,
+      bundleIdentifier: 'com.anonymous.278project'
+    },
     android: {
       adaptiveIcon: {
         foregroundImage: './assets/images/adaptive-icon.png',
