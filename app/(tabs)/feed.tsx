@@ -232,7 +232,7 @@ export default function Feed() {
           value={searchText}
           onChangeText={(text) => {
             setSearchText(text);
-          }}          
+          }}
           returnKeyType="search"
           style={{
             borderWidth: 1,
@@ -245,66 +245,6 @@ export default function Feed() {
         />
         {/* The top most common project shared with user */}
         <View style={styles.feedContainer}>
-          <View style={[styles.card, { backgroundColor: '#dfe7fd' }]}>
-            <ThemedText
-              type="title"
-              style={{ paddingBottom: 10, fontSize: 18, color: DARK_PURPLE }}
-            >
-              Hey (insert username)! Based on your profile and past projects,
-              this looks like a good fit:
-            </ThemedText>
-            <View
-              style={{
-                backgroundColor: '#fff',
-                padding: 20,
-                borderRadius: 16,
-                shadowColor: DARK_PURPLE,
-                shadowOpacity: 0.15,
-                shadowOffset: { width: 0, height: 3 },
-                marginTop: 10,
-              }}
-            >
-              <ThemedText type="title" style={{ paddingBottom: 10 }}>
-                VR Study
-              </ThemedText>
-              <View
-                style={{
-                  flexDirection: 'row',
-                  gap: 8,
-                  flexWrap: 'wrap',
-                  paddingBottom: 10,
-                }}
-              >
-                {['Education', 'VR'].map((tag, i) => (
-                  <View key={i} style={styles.tag}>
-                    <ThemedText style={styles.tagText}>{tag}</ThemedText>
-                  </View>
-                ))}
-              </View>
-              <ThemedText>
-                Hi! I've never coded in Unity before, but I really want to make
-                a VR simulation for my thesis. Chat with me if interested.
-              </ThemedText>
-              <TouchableOpacity
-                style={[styles.chatButton, { marginTop: 16 }]}
-                onPress={() =>
-                  openRequestModal({
-                    id: 4,
-                    title: 'VR Study',
-                    tags: 'Education, VR',
-                    description:
-                      'Hi! Ive never coded in Unity before, but I really want to make a VR simulation for my thesis. Chat with me if interested.',
-                    username: 'John Doe',
-                    pfp: require('@/assets/images/pfp.png'),
-                  })
-                }
-              >
-                <ThemedText style={{ color: 'white' }}>
-                  Request to Join Project
-                </ThemedText>
-              </TouchableOpacity>
-            </View>
-          </View>
           {/* The rest of algorithm established in projectAlgorithm  */}
           {filteredProjects.map((project) => (
             <View key={project.id.toString()} style={styles.card}>
