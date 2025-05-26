@@ -18,6 +18,7 @@ import { router } from 'expo-router';
 import ProjectRequestModal from '@/components/ProjectRequestModal';
 import { db, storage, auth as firebaseAuth } from '../../firebase';
 import { useAuth } from '../_layout';
+import { ChatService } from '../../services/chatService'; // Import ChatService
 import {
   collection,
   onSnapshot,
@@ -39,7 +40,14 @@ interface Project {
   tags: string;
   description: string;
   username: string;
+  uid: string; // Add the user ID of the project owner
   pfp?: any;
+}
+
+interface UserData {
+  name?: string;
+  tags?: string[];
+  [key: string]: any; // For other properties
 }
 
 export default function Feed() {
@@ -49,7 +57,11 @@ export default function Feed() {
   const [tags, setTags] = useState('');
   const [description, setDescription] = useState('');
   const [searchText, setSearchText] = useState('');
-  const { user: authUser } = useAuth(); // Make sure this is declared at the top
+  const [sendingRequest, setSendingRequest] = useState(false); // Loading state for sending requests
+  const { user: authUser } = useAuth();
+
+  const [userData, setUserData] = useState<UserData | null>(null);
+
   useEffect(() => {
     const q = query(collection(db, 'posts'), orderBy('createdAt', 'desc'));
 
@@ -62,9 +74,10 @@ export default function Feed() {
           tags: data.tags,
           description: data.description,
           username: data.username,
+          uid: data.uid, // Include the project owner's user ID
           pfp: data.photoURL
             ? { uri: data.photoURL }
-            : require('@/assets/images/pfp.png'),
+            : require('@/assets/images/pfp.png'), // TODO: do images work?
         };
       });
 
@@ -73,25 +86,33 @@ export default function Feed() {
 
     return () => unsubscribe();
   }, []);
+
   useEffect(() => {
-    const fetchUserTags = async () => {
+    const fetchUserData = async () => {
       if (!authUser) return;
 
       try {
         const userDoc = await getDoc(doc(db, 'users', authUser.uid));
         if (userDoc.exists()) {
           const data = userDoc.data();
+          
+          // Set the complete user data
+          setUserData(data);
+
+          console.log('User data fetched:', data);
+          
+          // Set tags as before
           const tagsFromDB = Array.isArray(data.tags)
             ? data.tags.map((tag: string) => tag.trim().toLowerCase())
             : [];
           setUserTags(tagsFromDB);
         }
       } catch (error) {
-        console.error('Error fetching user tags:', error);
+        console.error('Error fetching user data:', error);
       }
     };
 
-    fetchUserTags();
+    fetchUserData();
   }, [authUser]);
 
   const [userTags, setUserTags] = useState<string[]>([]);
@@ -139,22 +160,46 @@ export default function Feed() {
         tags: tags.trim(),
         description: description.trim(),
         uid: authUser.uid,
-        username: authUser.displayName || 'Anonymous',
+        username: userData?.name || 'Anonymous',
         photoURL: authUser.photoURL || null,
         createdAt: new Date(),
       };
 
-      await addDoc(collection(db, 'posts'), {
+      // Create the project post
+      const postRef = await addDoc(collection(db, 'posts'), {
         ...newPost,
         createdAt: serverTimestamp(), // consistent across timezones
       });
+
+      // Create a corresponding group chat for this project
+      const groupChatId = await ChatService.createGroupChat(
+        title.trim(), // projectName
+        `Group chat for ${title.trim()}`, // description
+        authUser.uid, // creatorId
+        userData?.name || 'Anonymous', // creatorName
+        authUser.email || '' // creatorEmail
+      );
+
+      if (groupChatId) {
+        console.log(`Created group chat ${groupChatId} for project ${postRef.id}`);
+        
+        // Optionally, you could store the groupChatId in the post document
+        // This would create a direct link between the post and its group chat
+        // await updateDoc(postRef, { groupChatId });
+      } else {
+        console.warn('Failed to create group chat for project');
+        // Don't fail the whole operation if group chat creation fails
+      }
 
       setTitle('');
       setTags('');
       setDescription('');
       setCreateModal(false);
+      
+      Alert.alert('Success', 'Project posted and group chat created!');
     } catch (error) {
       console.error('Error posting project:', error);
+      Alert.alert('Error', 'Failed to create project. Please try again.');
     }
   };
 
@@ -164,16 +209,56 @@ export default function Feed() {
 
   // Open request to join project modal
   const openRequestModal = (project: Project) => {
+    // Check if user is trying to request their own project
+    if (authUser && project.uid === authUser.uid) {
+      Alert.alert('Error', 'You cannot request to join your own project.');
+      return;
+    }
+
     setSelectedProject(project);
     setRequestModalVisible(true);
   };
 
   // Send a join request
-  const handleSendRequest = (message: string) => {
-    console.log('Request sent for project:', selectedProject?.title);
-    console.log('Message:', message);
+  const handleSendRequest = async (message: string) => {
+    if (!authUser || !selectedProject) {
+      Alert.alert('Error', 'Authentication or project information missing.');
+      return;
+    }
 
-    setRequestModalVisible(false);
+    setSendingRequest(true);
+
+    try {
+      const requestId = await ChatService.createProjectRequest(
+        authUser.uid, // fromUserId
+        userData?.name || 'Anonymous', // fromUserName
+        authUser.email || '', // fromUserEmail
+        selectedProject.uid, // toUserId (project owner)
+        selectedProject.title, // projectName
+        'join_project', // type
+        message, // message
+        selectedProject.id // projectId
+      );
+
+      if (requestId) {
+        Alert.alert(
+          'Request Sent!',
+          `Your request to join "${selectedProject.title}" has been sent to ${selectedProject.username}.`
+        );
+        setRequestModalVisible(false);
+        setSelectedProject(null);
+      } else {
+        Alert.alert(
+          'Request Not Sent',
+          'A request for this project may already exist or there was an error. Please try again.'
+        );
+      }
+    } catch (error) {
+      console.error('Error sending join request:', error);
+      Alert.alert('Error', 'Failed to send request. Please try again.');
+    } finally {
+      setSendingRequest(false);
+    }
   };
 
   const renderProject = ({ item }: { item: Project }) => (
@@ -224,7 +309,7 @@ export default function Feed() {
             type="title"
             style={{ fontSize: 30, color: '#1D3D47', marginTop: 20 }}
           >
-            Welcome, John Doe
+            Welcome, {userData?.name || 'User'}
           </ThemedText>
         </ThemedView>
         <TextInput
@@ -292,14 +377,31 @@ export default function Feed() {
                 ))}
               </View>
               <ThemedText>{project.description}</ThemedText>
-              <TouchableOpacity
-                style={styles.chatButton}
-                onPress={() => openRequestModal(project)}
-              >
-                <ThemedText style={{ color: 'white' }}>
-                  Request to Join Project
-                </ThemedText>
-              </TouchableOpacity>
+              
+              {/* Only show request button if it's not the user's own project */}
+              {authUser && project.uid !== authUser.uid && (
+                <TouchableOpacity
+                  style={[
+                    styles.chatButton,
+                    sendingRequest && styles.disabledButton
+                  ]}
+                  onPress={() => openRequestModal(project)}
+                  disabled={sendingRequest}
+                >
+                  <ThemedText style={{ color: 'white' }}>
+                    Request to Join Project
+                  </ThemedText>
+                </TouchableOpacity>
+              )}
+              
+              {/* Show different message for user's own projects */}
+              {authUser && project.uid === authUser.uid && (
+                <View style={[styles.chatButton, styles.ownProjectButton]}>
+                  <ThemedText style={{ color: DARK_PURPLE }}>
+                    Your Project
+                  </ThemedText>
+                </View>
+              )}
             </View>
           ))}
         </View>
@@ -362,8 +464,12 @@ export default function Feed() {
         <ProjectRequestModal
           visible={requestModalVisible}
           projectTitle={selectedProject.title}
-          onClose={() => setRequestModalVisible(false)}
+          onClose={() => {
+            setRequestModalVisible(false);
+            setSelectedProject(null);
+          }}
           onSend={handleSendRequest}
+          // loading={sendingRequest} // Pass loading state to modal
         />
       )}
     </ThemedView>
@@ -419,6 +525,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     borderRadius: 12,
     alignItems: 'center',
+  },
+  disabledButton: {
+    opacity: 0.6,
+  },
+  ownProjectButton: {
+    backgroundColor: 'transparent',
+    borderWidth: 2,
+    borderColor: DARK_PURPLE,
   },
   postButton: {
     backgroundColor: DARK_PURPLE,

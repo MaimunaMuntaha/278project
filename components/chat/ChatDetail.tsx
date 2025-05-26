@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { StyleSheet, FlatList, View, KeyboardAvoidingView, Platform } from 'react-native';
+import { StyleSheet, FlatList, View, KeyboardAvoidingView, Platform, Alert } from 'react-native';
 import {
   Appbar,
   Button,
@@ -9,10 +9,14 @@ import {
   useTheme,
   Divider,
   Chip,
+  ActivityIndicator,
 } from 'react-native-paper';
 import { ThemedView } from '@/components/ThemedView';
 import { ChatItem } from '@/app/(tabs)/chat';
 import { RequestItem } from '@/components/chat/ChatRequests';
+import { ChatService, FirebaseChatMessage } from '@/services/chatService';
+import { useAuth } from '@/app/_layout';
+import { Timestamp } from 'firebase/firestore';
 
 interface Message {
   id: string;
@@ -20,75 +24,8 @@ interface Message {
   sender: string;
   timestamp: string;
   isCurrentUser: boolean;
+  type?: 'text' | 'system';
 }
-
-// Sample messages mapped by chat ID
-const messagesByChatId: Record<string, Message[]> = {
-  '1': [
-    {
-      id: '1-1',
-      text: 'Dolphin related stuff',
-      sender: 'JD',
-      timestamp: '10:30 AM',
-      isCurrentUser: true,
-    },
-    {
-      id: '1-2',
-      text: 'We need to do a lot of important work on the dolphin',
-      sender: 'CP',
-      timestamp: '10:32 AM',
-      isCurrentUser: false,
-    },
-  ],
-  '2': [
-    {
-      id: '2-1',
-      text: 'How is the spider robot project going?',
-      sender: 'Me',
-      timestamp: '2:15 PM',
-      isCurrentUser: true,
-    },
-    {
-      id: '2-2',
-      text: 'Making good progress on the leg mechanisms',
-      sender: 'Chris',
-      timestamp: '2:20 PM',
-      isCurrentUser: false,
-    },
-  ],
-  '3': [
-    {
-      id: '3-1',
-      text: 'I have some ideas for our collaborative essay',
-      sender: 'Me',
-      timestamp: '9:45 AM',
-      isCurrentUser: true,
-    },
-    {
-      id: '3-2',
-      text: 'Great, let me know what youre thinking!',
-      sender: 'FamousWriter123',
-      timestamp: '10:02 AM',
-      isCurrentUser: false,
-    },
-  ],
-  '4': [
-    {
-      id: '4-1',
-      text: 'Hello! I wanted to discuss your request to join the Essay Writing Project before making a decision.',
-      sender: 'Me',
-      timestamp: '10:05 AM',
-      isCurrentUser: true,
-    },
-    {
-      id: '4-2',
-      text: 'Thanks for reaching out! I have experience with collaborative writing and would love to contribute to the project.',
-      sender: 'Sam A.',
-      timestamp: '10:07 AM',
-      isCurrentUser: false,
-    },
-  ],
-};
 
 // Chat Detail Component
 export const ChatDetail: React.FC<{
@@ -97,11 +34,14 @@ export const ChatDetail: React.FC<{
   onMessageSent?: (chatId: string, messageText: string) => void;
   requestData?: RequestItem;
 }> = ({ chat, onBack, onMessageSent, requestData }) => {
-  const [messages, setMessages] = useState<Message[]>(
-    messagesByChatId[chat.id] || []
-  );
+  const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState<string>('');
   const [requestHandled, setRequestHandled] = useState<boolean>(false);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [sendingMessage, setSendingMessage] = useState<boolean>(false);
+  const [processingRequest, setProcessingRequest] = useState<boolean>(false);
+  const [lastMessageId, setLastMessageId] = useState<string | null>(null);
+  const { user: authUser } = useAuth();
   const theme = useTheme();
 
   // Format project ID for display
@@ -111,87 +51,207 @@ export const ChatDetail: React.FC<{
       .join(' ');
   };
 
-  // Check if we need to initialize the messages for this chat
-  useEffect(() => {
-    // If this is a direct message chat with no messages
-    if (chat.type === 'direct' && chat.requestId && messages.length === 0) {
-      // Initialize with a default message
-      const initialMessage: Message = {
-        id: Date.now().toString(),
-        text: `Hello! I wanted to discuss your request to join ${formatProjectName(chat.projectId || '')} before making a decision.`,
-        sender: 'Me',
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        isCurrentUser: true,
-      };
-      
-      setMessages([initialMessage]);
-      
-      // Notify parent component
-      if (onMessageSent) {
-        onMessageSent(chat.id, initialMessage.text);
-      }
-    }
-  }, [chat.id, chat.projectId, chat.requestId, chat.type, messages.length, onMessageSent]);
-
-  // Handle sending a new message
-  const handleSendMessage = (): void => {
-    if (inputText.trim() === '') return;
-    
-    const newMessage: Message = {
-      id: Date.now().toString(),
-      text: inputText,
-      sender: 'Me',
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      isCurrentUser: true,
+  // Convert Firebase message to local message format
+  const convertFirebaseMessage = (firebaseMsg: FirebaseChatMessage): Message => {
+    return {
+      id: firebaseMsg.id,
+      text: firebaseMsg.text,
+      sender: firebaseMsg.senderName,
+      timestamp: firebaseMsg.timestamp.toDate().toLocaleTimeString([], { 
+        hour: '2-digit', 
+        minute: '2-digit' 
+      }),
+      isCurrentUser: firebaseMsg.senderId === authUser?.uid,
+      type: 'text'
     };
-    
-    setMessages([...messages, newMessage]);
-    setInputText('');
-    
-    // Notify the parent component about the new message
-    if (onMessageSent) {
-      onMessageSent(chat.id, inputText);
+  };
+
+  const markMessagesAsRead = async (latestMessageId: string) => {
+    if (chat.type === 'group' && authUser?.uid && latestMessageId) {
+      try {
+        await ChatService.markMessagesAsRead(chat.id, authUser.uid, latestMessageId);
+      } catch (error) {
+        console.error('Error marking messages as read:', error);
+      }
     }
   };
 
-  // Handle accepting a request (for direct messages related to project requests)
-  const handleAcceptRequest = (): void => {
-    // Add a system message to indicate the request was accepted
-    const systemMessage: Message = {
-      id: Date.now().toString(),
-      text: "✅ You've accepted this request. The user will be added to the project.",
-      sender: 'System',
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      isCurrentUser: false,
-    };
+  // Subscribe to real-time messages
+  useEffect(() => {
+    if (!authUser || !chat.id) return;
+
+    setLoading(true);
     
-    setMessages([...messages, systemMessage]);
-    setRequestHandled(true);
+    if (chat.type === 'group') {
+      const unsubscribe = ChatService.subscribeToGroupChatMessages(
+        chat.id,
+        async (firebaseMessages: FirebaseChatMessage[]) => {
+          const convertedMessages = firebaseMessages.map(convertFirebaseMessage);
+          setMessages(convertedMessages);
+          
+          // Mark messages as read if there are any messages
+          if (firebaseMessages.length > 0) {
+            const latestMessage = firebaseMessages[firebaseMessages.length - 1];
+            setLastMessageId(latestMessage.id);
+            
+            // Mark as read after a short delay to ensure UI is ready
+            setTimeout(() => {
+              markMessagesAsRead(latestMessage.id);
+            }, 500);
+          }
+          
+          setLoading(false);
+        }
+      );
+
+      return () => unsubscribe();
+    } 
+    else if (chat.type === 'direct') {
+      // Handle direct messages as before
+      if (chat.requestId && messages.length === 0) {
+        const initialMessage: Message = {
+          id: Date.now().toString(),
+          text: `Hello! I wanted to discuss your request to join ${formatProjectName(chat.projectId || '')} before making a decision.`,
+          sender: 'Me',
+          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          isCurrentUser: true,
+          type: 'text'
+        };
+        
+        setMessages([initialMessage]);
+      }
+      setLoading(false);
+    }
+  }, [chat.id, chat.type, authUser]);
+  
+
+  useEffect(() => {
+    if (chat.type === 'group' && lastMessageId && authUser?.uid) {
+      markMessagesAsRead(lastMessageId);
+    }
+  }, [lastMessageId, chat.type, authUser?.uid]);
+
+  // Updated handleSendMessage to mark own message as read
+  const handleSendMessage = async (): Promise<void> => {
+    if (inputText.trim() === '' || !authUser) return;
     
-    // You would typically call an API to update the project membership here
+    setSendingMessage(true);
+    
+    try {
+      if (chat.type === 'group') {
+        const success = await ChatService.sendGroupChatMessage(
+          chat.id,
+          authUser.uid,
+          authUser.displayName || 'Anonymous',
+          inputText.trim()
+        );
+
+        if (!success) {
+          Alert.alert('Error', 'Failed to send message. Please try again.');
+          return;
+        }
+
+        // The message will be automatically marked as read through the subscription
+      } else {
+        // For direct messages, add to local state
+        const newMessage: Message = {
+          id: Date.now().toString(),
+          text: inputText,
+          sender: 'Me',
+          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          isCurrentUser: true,
+          type: 'text'
+        };
+        
+        setMessages(prev => [...prev, newMessage]);
+      }
+
+      setInputText('');
+      
+      if (onMessageSent) {
+        onMessageSent(chat.id, inputText);
+      }
+    } catch (error) {
+      console.error('Error sending message:', error);
+      Alert.alert('Error', 'Failed to send message. Please try again.');
+    } finally {
+      setSendingMessage(false);
+    }
+  };
+
+  // Handle accepting a request
+  const handleAcceptRequest = async (): Promise<void> => {
+    if (!chat.requestId) return;
+    
+    setProcessingRequest(true);
+    
+    try {
+      const success = await ChatService.acceptProjectRequest(chat.requestId);
+      
+      if (success) {
+        // Add a system message to indicate the request was accepted
+        const systemMessage: Message = {
+          id: Date.now().toString(),
+          text: "✅ You've accepted this request. The user has been added to the project.",
+          sender: 'System',
+          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          isCurrentUser: false,
+          type: 'system'
+        };
+        
+        setMessages(prev => [...prev, systemMessage]);
+        setRequestHandled(true);
+        
+        Alert.alert('Success', 'Request accepted! The user has been added to the project.');
+      } else {
+        Alert.alert('Error', 'Failed to accept request. Please try again.');
+      }
+    } catch (error) {
+      console.error('Error accepting request:', error);
+      Alert.alert('Error', 'Failed to accept request. Please try again.');
+    } finally {
+      setProcessingRequest(false);
+    }
   };
   
   // Handle declining a request
-  const handleDeclineRequest = (): void => {
-    // Add a system message to indicate the request was declined
-    const systemMessage: Message = {
-      id: Date.now().toString(),
-      text: "❌ You've declined this request.",
-      sender: 'System',
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      isCurrentUser: false,
-    };
+  const handleDeclineRequest = async (): Promise<void> => {
+    if (!chat.requestId) return;
     
-    setMessages([...messages, systemMessage]);
-    setRequestHandled(true);
+    setProcessingRequest(true);
     
-    // You would typically call an API to update the request status here
+    try {
+      const success = await ChatService.declineProjectRequest(chat.requestId);
+      
+      if (success) {
+        // Add a system message to indicate the request was declined
+        const systemMessage: Message = {
+          id: Date.now().toString(),
+          text: "❌ You've declined this request.",
+          sender: 'System',
+          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          isCurrentUser: false,
+          type: 'system'
+        };
+        
+        setMessages(prev => [...prev, systemMessage]);
+        setRequestHandled(true);
+        
+        Alert.alert('Request Declined', 'The request has been declined.');
+      } else {
+        Alert.alert('Error', 'Failed to decline request. Please try again.');
+      }
+    } catch (error) {
+      console.error('Error declining request:', error);
+      Alert.alert('Error', 'Failed to decline request. Please try again.');
+    } finally {
+      setProcessingRequest(false);
+    }
   };
 
   // Render a message bubble
   const renderMessage = ({ item }: { item: Message }): JSX.Element => {
-    // Check if this is a system message
-    const isSystemMessage = item.sender === 'System';
+    const isSystemMessage = item.type === 'system' || item.sender === 'System';
     
     return (
       <View 
@@ -233,6 +293,15 @@ export const ChatDetail: React.FC<{
     );
   };
 
+  if (loading) {
+    return (
+      <ThemedView style={[styles.container, styles.centerContent]}>
+        <ActivityIndicator size="large" />
+        <Text style={{ marginTop: 16 }}>Loading messages...</Text>
+      </ThemedView>
+    );
+  }
+
   return (
     <KeyboardAvoidingView
       style={styles.container}
@@ -244,7 +313,7 @@ export const ChatDetail: React.FC<{
         <Appbar.BackAction onPress={onBack} />
         <Appbar.Content 
           title={chat.name}
-          subtitle={chat.type === 'direct' ? 'Direct Message' : undefined}
+          subtitle={chat.type === 'direct' ? 'Direct Message' : `${chat.memberCount || 0} members`}
         />
         <Appbar.Action icon="information" onPress={() => console.log('Info')} />
       </Appbar.Header>
@@ -275,6 +344,8 @@ export const ChatDetail: React.FC<{
                   compact 
                   icon="close" 
                   onPress={handleDeclineRequest}
+                  disabled={processingRequest}
+                  loading={processingRequest}
                   style={[styles.requestActionButton, styles.declineButton]}
                   labelStyle={styles.requestButtonLabel}
                 >
@@ -285,6 +356,8 @@ export const ChatDetail: React.FC<{
                   compact 
                   icon="check" 
                   onPress={handleAcceptRequest}
+                  disabled={processingRequest}
+                  loading={processingRequest}
                   style={[styles.requestActionButton, styles.acceptButton]}
                   labelStyle={styles.requestButtonLabel}
                 >
@@ -301,6 +374,7 @@ export const ChatDetail: React.FC<{
           renderItem={renderMessage}
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.messagesList}
+          showsVerticalScrollIndicator={false}
         />
         
         {/* Input Area */}
@@ -312,11 +386,13 @@ export const ChatDetail: React.FC<{
             onChangeText={setInputText}
             placeholder="New message..."
             outlineStyle={styles.inputOutline}
+            disabled={sendingMessage}
           />
           <Button 
             mode="contained" 
             onPress={handleSendMessage}
-            disabled={inputText.trim() === ''}
+            disabled={inputText.trim() === '' || sendingMessage}
+            loading={sendingMessage}
             style={styles.sendButton}
           >
             Send
@@ -330,6 +406,10 @@ export const ChatDetail: React.FC<{
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+  },
+  centerContent: {
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   messagesList: {
     padding: 16,

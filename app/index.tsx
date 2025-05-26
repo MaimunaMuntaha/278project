@@ -4,7 +4,7 @@ import { useAuth } from './_layout'; // Import useAuth from the layout
 
 export default function Index() {
   const { user, loading } = useAuth();
-
+  
   if (loading) {
     return null; // Or a loading spinner, splash screen, etc.
   }

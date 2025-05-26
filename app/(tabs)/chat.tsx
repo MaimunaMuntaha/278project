@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { StyleSheet, FlatList, View, Image, Pressable } from 'react-native';
+import { StyleSheet, FlatList, View, Image, Pressable, ActivityIndicator } from 'react-native';
 import {
   Button,
   Surface,
@@ -15,68 +15,241 @@ import { ThemedView } from '@/components/ThemedView';
 import { ChatDetail } from '@/components/chat/ChatDetail';
 import { ProjectRequests, RequestItem } from '@/components/chat/ChatRequests';
 import { useIsFocused } from '@react-navigation/native';
+import { useAuth } from '../_layout'; // Import useAuth
+import { db } from '../../firebase';
 
 // Type definitions
 type ChatParticipantStatus = 'conversation' | 'reachedOut' | 'none';
-type ChatType = 'group' | 'direct'; // Added chat type
+type ChatType = 'group' | 'direct';
+
+import { ChatService, FirebaseChatMessage, FirebaseGroupChat } from '@/services/chatService';
 
 export interface ChatItem {
   id: string;
   name: string;
   participants: string;
-  avatar: any; // For image require
+  avatar: any;
   newMessages: number;
   status: ChatParticipantStatus;
-  type: ChatType; // Added chat type field
-  projectId?: string; // Optional field to link direct messages to their project
-  lastMessageTime?: Date; // For sorting chats by most recent message
-  requestId?: string; // For linking back to a request
+  type: ChatType;
+  projectId?: string;
+  lastMessageTime?: Date;
+  requestId?: string;
+  memberCount?: number;
 }
 
-// Mock chat data
-const chatData: ChatItem[] = [
-  {
-    id: '1',
-    name: 'Dolphin Robot',
-    participants: 'Chris Hoch, Jerry Cain',
-    avatar: require('@/assets/images/1.png'), // Make sure to create these assets
-    newMessages: 3,
-    status: 'conversation',
+// Helper function to convert Firebase chat to ChatItem
+const convertFirebaseChatToChatItem = (
+  firebaseChat: FirebaseGroupChat, 
+  currentUserId: string
+): ChatItem => {
+  const memberNames = Object.values(firebaseChat.members)
+    .map(member => member.displayName)
+    .join(', ');
+
+  // Calculate unread messages (you'll need to implement this based on your needs)
+  const newMessages = 0; // This should be calculated based on lastReadMessageId vs actual messages
+
+  // Determine status based on user's participation
+  const currentUserMember = firebaseChat.members[currentUserId];
+  let status: ChatParticipantStatus = 'none';
+  if (currentUserMember) {
+    status = 'conversation'; // User is already in the chat
+  }
+
+  return {
+    id: firebaseChat.id,
+    name: firebaseChat.projectName,
+    participants: memberNames,
+    avatar: null, // You can generate this or use a default
+    newMessages,
+    status,
     type: 'group',
-    lastMessageTime: new Date(2025, 4, 7, 14, 30), // Yesterday at 2:30 PM
-  },
-  {
-    id: '2',
-    name: 'Spider Robot',
-    participants: 'Chris Hoch',
-    avatar: require('@/assets/images/1.png'),
-    newMessages: 1,
-    status: 'conversation',
-    type: 'group',
-    lastMessageTime: new Date(2025, 4, 7, 9, 15), // Yesterday at 9:15 AM
-  },
-  {
-    id: '3',
-    name: 'Collaborative Essay',
-    participants: 'FamousWriter123',
-    avatar: require('@/assets/images/1.png'),
-    newMessages: 0,
-    status: 'reachedOut',
-    type: 'group',
-    lastMessageTime: new Date(2025, 4, 6, 16, 45), // Two days ago
-  },
-];
+    projectId: firebaseChat.id,
+    lastMessageTime: firebaseChat.lastMessage?.timestamp.toDate() || firebaseChat.updatedAt.toDate(),
+  };
+};
+
+// Replace your existing ChatScreen component with these updates
 
 export default function ChatScreen(): JSX.Element {
-  const [chats, setChats] = useState<ChatItem[]>(chatData);
+  const [chats, setChats] = useState<ChatItem[]>([]);
+  const [loading, setLoading] = useState<boolean>(true);
   const [selectedChat, setSelectedChat] = useState<ChatItem | null>(null);
   const [showRequests, setShowRequests] = useState<boolean>(false);
   const [requests, setRequests] = useState<Record<string, RequestItem>>({});
   const theme = useTheme();
 
+  const { user: authUser } = useAuth();
+  const currentUserId = authUser?.uid || '';
+
+  const unsubscribeRef = useRef<(() => void) | null>(null);
+  const messageUnsubscribesRef = useRef<Record<string, () => void>>({});
+
+  // Function to update unread count for a specific chat
+  const updateChatUnreadCount = async (chatId: string): Promise<void> => {
+    if (!currentUserId) return;
+
+    try {
+      // Find the chat in our current state
+      const chat = chats.find(c => c.id === chatId);
+      if (!chat) return;
+
+      // Get the current user's last read message ID from Firebase
+      const chatDoc = await ChatService.getGroupChatById(chatId);
+      if (!chatDoc) return;
+
+      const currentUserMember = chatDoc.members[currentUserId];
+      const unreadCount = await ChatService.getUnreadMessageCount(
+        chatId,
+        currentUserId,
+        currentUserMember?.lastReadMessageId
+      );
+
+      // Update the chat in our state
+      setChats(prevChats => 
+        prevChats.map(c => 
+          c.id === chatId 
+            ? { ...c, newMessages: unreadCount }
+            : c
+        )
+      );
+    } catch (error) {
+      console.error('Error updating unread count:', error);
+    }
+  };
+
+  // Subscribe to message updates for all chats to update unread counts
+  const subscribeToMessageUpdates = (chatIds: string[]) => {
+    // Clean up existing subscriptions
+    Object.values(messageUnsubscribesRef.current).forEach(unsub => unsub());
+    messageUnsubscribesRef.current = {};
+
+    // Subscribe to messages for each chat
+    chatIds.forEach(chatId => {
+      const unsubscribe = ChatService.subscribeToGroupChatMessages(
+        chatId,
+        async (messages: FirebaseChatMessage[]) => {
+          // Only update unread count if this chat is not currently selected
+          if (!selectedChat || selectedChat.id !== chatId) {
+            await updateChatUnreadCount(chatId);
+          }
+        }
+      );
+      
+      messageUnsubscribesRef.current[chatId] = unsubscribe;
+    });
+  };
+
+  // Load chats from Firebase
+  useEffect(() => {
+    const loadChats = async () => {
+      setLoading(true);
+      
+      // Set up real-time subscription for chat metadata
+      const unsubscribe = ChatService.subscribeToUserGroupChats(
+        currentUserId,
+        async (firebaseChats: FirebaseGroupChat[]) => {
+          const chatItems: ChatItem[] = [];
+          
+          // Convert Firebase chats to ChatItems and get unread counts
+          for (const firebaseChat of firebaseChats) {
+            const chatItem = convertFirebaseChatToChatItem(firebaseChat, currentUserId);
+            
+            // Get unread message count
+            const currentUserMember = firebaseChat.members[currentUserId];
+            const unreadCount = await ChatService.getUnreadMessageCount(
+              firebaseChat.id,
+              currentUserId,
+              currentUserMember?.lastReadMessageId
+            );
+            
+            chatItem.newMessages = unreadCount;
+            chatItem.memberCount = Object.keys(firebaseChat.members).length;
+            chatItems.push(chatItem);
+          }
+          
+          setChats(chatItems);
+          setLoading(false);
+
+          // Subscribe to message updates for all chats
+          const chatIds = chatItems.map(chat => chat.id);
+          subscribeToMessageUpdates(chatIds);
+        }
+      );
+
+      unsubscribeRef.current = unsubscribe;
+    };
+
+    if (currentUserId) {
+      loadChats();
+    }
+
+    // Cleanup subscriptions on unmount
+    return () => {
+      if (unsubscribeRef.current) {
+        unsubscribeRef.current();
+      }
+      Object.values(messageUnsubscribesRef.current).forEach(unsub => unsub());
+    };
+  }, [currentUserId]);
+
+  // Clean up message subscriptions when chat selection changes
+  useEffect(() => {
+    return () => {
+      Object.values(messageUnsubscribesRef.current).forEach(unsub => unsub());
+    };
+  }, [selectedChat]);
+
+  // Function to mark messages as read and update local state
+  const markChatAsRead = async (chatId: string): Promise<void> => {
+    if (!currentUserId) return;
+
+    try {
+      // Get the latest messages to find the last message ID
+      const messages = await ChatService.getGroupChatMessages(chatId, 1);
+      if (messages.length > 0) {
+        const lastMessageId = messages[messages.length - 1].id;
+        
+        // Mark messages as read in Firebase
+        await ChatService.markMessagesAsRead(chatId, currentUserId, lastMessageId);
+        
+        // Update local state to reflect zero unread messages
+        setChats(prevChats => 
+          prevChats.map(chat => 
+            chat.id === chatId 
+              ? { ...chat, newMessages: 0 }
+              : chat
+          )
+        );
+      }
+    } catch (error) {
+      console.error('Error marking messages as read:', error);
+    }
+  };
+
+  // Modified function to handle chat selection
+  const handleChatSelect = async (chat: ChatItem): Promise<void> => {
+    setSelectedChat(chat);
+    
+    // Mark messages as read when opening a group chat
+    if (chat.type === 'group' && chat.newMessages > 0) {
+      await markChatAsRead(chat.id);
+    }
+  };
+
   // Handle back navigation
   const handleBack = (): void => {
     setSelectedChat(null);
+    
+    // When returning to chat list, refresh unread counts for all chats
+    if (currentUserId && chats.length > 0) {
+      chats.forEach(chat => {
+        if (chat.type === 'group') {
+          updateChatUnreadCount(chat.id);
+        }
+      });
+    }
   };
 
   const handleBackFromRequests = (): void => {
@@ -93,11 +266,9 @@ export default function ChatScreen(): JSX.Element {
     
     if (request.startDM) {
       // This is a request to start a DM
-      // Check if a DM already exists for this request
       const existingChat = chats.find(chat => chat.requestId === request.id);
       
       if (existingChat) {
-        // If DM already exists, just open it
         setShowRequests(false);
         setSelectedChat(existingChat);
       } else {
@@ -112,25 +283,17 @@ export default function ChatScreen(): JSX.Element {
           type: 'direct',
           projectId: request.project.toLowerCase().replace(/\s+/g, '-'),
           requestId: request.id,
-          lastMessageTime: new Date(), // Current time
+          lastMessageTime: new Date(),
         };
   
-        // Add the new chat to the list
         setChats([...chats, newDirectChat]);
-        
-        // Close the requests screen and open the new chat
         setShowRequests(false);
         setSelectedChat(newDirectChat);
       }
     } else {
-      // This is an accept request - implement the logic to accept the project request
-      // (You might want to add code here to add the user to the project)
-      
-      // Remove any existing DM for this request
+      // This is an accept request
       const updatedChats = chats.filter(chat => chat.requestId !== request.id);
       setChats(updatedChats);
-      
-      // Close the requests screen
       setShowRequests(false);
     }
   };
@@ -139,49 +302,53 @@ export default function ChatScreen(): JSX.Element {
   const wasUnfocused = useRef(false);
   
   useEffect(() => {
-    // We only want to reset if:
-    // 1. The screen is currently focused AND
-    // 2. It was previously unfocused (coming from another tab)
     if (isFocused && wasUnfocused.current) {
       setShowRequests(false);
       setSelectedChat(null);
       wasUnfocused.current = false;
     }
     
-    // Update the ref when we lose focus
     if (!isFocused) {
       wasUnfocused.current = true;
     }
   }, [isFocused]);
+
+  // Don't render anything if user is not authenticated
+  if (!authUser) {
+    return (
+      <ThemedView style={[styles.container, styles.centered]}>
+        <Text>Please log in to view chats.</Text>
+      </ThemedView>
+    );
+  }
 
   if (showRequests) {
     return (
       <ProjectRequests 
         onBack={handleBackFromRequests}
         onAcceptRequest={handleAcceptRequest}
+        currentUserId={currentUserId}
       />
     );
   }
 
-  // Function to update a chat with a new message
+  // Function to update a chat with a new message (for direct messages)
   const updateChatWithMessage = (chatId: string, messageText: string): void => {
-    // Find the chat to update
+    // Only update last message time for direct messages
     const updatedChats = chats.map(chat => {
-      if (chat.id === chatId) {
+      if (chat.id === chatId && chat.type === 'direct') {
         return {
           ...chat,
           lastMessageTime: new Date(),
-          newMessages: chat.newMessages + 1
         };
       }
       return chat;
     });
     
-    // Sort chats by most recent message
     const sortedChats = updatedChats.sort((a, b) => {
       const timeA = a.lastMessageTime ? a.lastMessageTime.getTime() : 0;
       const timeB = b.lastMessageTime ? b.lastMessageTime.getTime() : 0;
-      return timeB - timeA; // Sort in descending order (newest first)
+      return timeB - timeA;
     });
     
     setChats(sortedChats);
@@ -218,7 +385,7 @@ export default function ChatScreen(): JSX.Element {
   // Render each chat item
   const renderChatItem = ({ item }: { item: ChatItem }): JSX.Element => (
     <Pressable
-      onPress={() => setSelectedChat(item)}
+      onPress={() => handleChatSelect(item)}
     >
       <Surface style={styles.chatItem} elevation={0}>
         <View style={styles.avatarContainer}>
@@ -228,7 +395,6 @@ export default function ChatScreen(): JSX.Element {
               ? item.name.split(' ').slice(0, 2).map(word => word[0]).join('')
               : item.name.split(' ').map(word => word[0]).join('').slice(0, 2)
             }
-            // Generate a consistent but random color based on the item id
             color="#fff"
             style={{ 
               backgroundColor: `hsl(${parseInt(item.id, 36) % 360}, 70%, 60%)` 
@@ -237,15 +403,14 @@ export default function ChatScreen(): JSX.Element {
           {item.status !== 'none' && (
             <Badge
               style={[
-          styles.statusBadge,
-          { backgroundColor: getStatusColor(item.status) }
+                styles.statusBadge,
+                { backgroundColor: getStatusColor(item.status) }
               ]}
               size={12}
             />
           )}
         </View>
         
-        {/* TODO: Break into its own component? */}
         <View style={styles.chatInfo}>
           <View style={styles.chatHeader}>
             <View style={styles.chatNameContainer}>
@@ -278,12 +443,20 @@ export default function ChatScreen(): JSX.Element {
   const sortedChats = [...chats].sort((a, b) => {
     const timeA = a.lastMessageTime ? a.lastMessageTime.getTime() : 0;
     const timeB = b.lastMessageTime ? b.lastMessageTime.getTime() : 0;
-    return timeB - timeA; // Sort in descending order (newest first)
+    return timeB - timeA;
   });
+
+  if (loading) {
+    return (
+      <ThemedView style={[styles.container, styles.centered]}>
+        <ActivityIndicator size="large" color={theme.colors.primary} />
+        <Text style={styles.loadingText}>Loading chats...</Text>
+      </ThemedView>
+    );
+  }
 
   return (
     <ThemedView style={styles.container}>
-      {/* Header with Chat title and Requests button */}
       <Surface style={styles.header} elevation={1}>
         <Title style={styles.headerTitle}>Chat</Title>
         <Button mode="contained" onPress={() => setShowRequests(true)}>
@@ -293,14 +466,24 @@ export default function ChatScreen(): JSX.Element {
 
       <Divider />
 
-      {/* Chat list */}
-      <FlatList
-        data={sortedChats}
-        renderItem={renderChatItem}
-        keyExtractor={(item) => item.id}
-        style={styles.chatList}
-        ItemSeparatorComponent={() => <Divider />}
-      />
+      {chats.length === 0 ? (
+        <View style={[styles.container, styles.centered]}>
+          <Text variant="bodyLarge" style={styles.emptyText}>
+            No group chats yet
+          </Text>
+          <Text variant="bodyMedium" style={styles.emptySubtext}>
+            Join a project to start chatting with team members
+          </Text>
+        </View>
+      ) : (
+        <FlatList
+          data={sortedChats}
+          renderItem={renderChatItem}
+          keyExtractor={(item) => item.id}
+          style={styles.chatList}
+          ItemSeparatorComponent={() => <Divider />}
+        />
+      )}
     </ThemedView>
   );
 }
@@ -308,6 +491,10 @@ export default function ChatScreen(): JSX.Element {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+  },
+  centered: {
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   header: {
     flexDirection: 'row',
@@ -370,5 +557,18 @@ const styles = StyleSheet.create({
   },
   participants: {
     color: '#666',
+  },
+  loadingText: {
+    marginTop: 16,
+    color: '#666',
+  },
+  emptyText: {
+    textAlign: 'center',
+    color: '#666',
+    marginBottom: 8,
+  },
+  emptySubtext: {
+    textAlign: 'center',
+    color: '#999',
   },
 });
