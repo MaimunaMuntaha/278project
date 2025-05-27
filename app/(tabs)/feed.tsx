@@ -44,7 +44,7 @@ interface Project {
   pfp?: any;
 }
 
-interface UserData {
+export interface UserData {
   name?: string;
   tags?: string[];
   [key: string]: any; // For other properties
@@ -58,6 +58,8 @@ export default function Feed() {
   const [description, setDescription] = useState('');
   const [searchText, setSearchText] = useState('');
   const [sendingRequest, setSendingRequest] = useState(false); // Loading state for sending requests
+  const [joinedProjects, setJoinedProjects] = useState<Set<string>>(new Set()); // Track joined projects
+  const [pendingRequests, setPendingRequests] = useState<Set<string>>(new Set()); // Track pending requests
   const { user: authUser } = useAuth();
 
   const [userData, setUserData] = useState<UserData | null>(null);
@@ -114,6 +116,95 @@ export default function Feed() {
 
     fetchUserData();
   }, [authUser]);
+
+  // Check which projects the user has already joined
+  useEffect(() => {
+    const checkJoinedProjects = async () => {
+      if (!authUser?.uid || projects.length === 0) return;
+
+      try {
+        // Get user's group chats
+        const userGroupChats = await ChatService.getUserGroupChats(authUser.uid);
+        
+        // Create a set of project names the user has joined
+        const joinedProjectNames = new Set(
+          userGroupChats.map(chat => chat.projectName.toLowerCase())
+        );
+
+        // Check which projects from the feed the user has joined
+        const joinedProjectIds = new Set<string>();
+        projects.forEach(project => {
+          if (joinedProjectNames.has(project.title.toLowerCase())) {
+            joinedProjectIds.add(project.id);
+          }
+        });
+
+        setJoinedProjects(joinedProjectIds);
+      } catch (error) {
+        console.error('Error checking joined projects:', error);
+      }
+    };
+
+    checkJoinedProjects();
+  }, [authUser?.uid, projects]);
+
+  // Check which projects the user has pending requests for
+  useEffect(() => {
+    const checkPendingRequests = async () => {
+      if (!authUser?.uid || projects.length === 0) return;
+
+      try {
+        // Get user's sent requests
+        const userSentRequests = await ChatService.getUserSentRequests(authUser.uid);
+        
+        // Create a set of project names the user has pending requests for
+        const pendingProjectNames = new Set(
+          userSentRequests.map(request => request.projectName.toLowerCase())
+        );
+
+        // Check which projects from the feed have pending requests
+        const pendingProjectIds = new Set<string>();
+        projects.forEach(project => {
+          if (pendingProjectNames.has(project.title.toLowerCase())) {
+            pendingProjectIds.add(project.id);
+          }
+        });
+
+        setPendingRequests(pendingProjectIds);
+      } catch (error) {
+        console.error('Error checking pending requests:', error);
+      }
+    };
+
+    checkPendingRequests();
+  }, [authUser?.uid, projects]);
+
+  // Subscribe to real-time updates for pending requests
+  useEffect(() => {
+    if (!authUser?.uid) return;
+
+    const unsubscribe = ChatService.subscribeToUserSentRequests(
+      authUser.uid,
+      (sentRequests) => {
+        // Create a set of project names with pending requests
+        const pendingProjectNames = new Set(
+          sentRequests.map(request => request.projectName.toLowerCase())
+        );
+
+        // Update pending projects based on current projects in feed
+        const pendingProjectIds = new Set<string>();
+        projects.forEach(project => {
+          if (pendingProjectNames.has(project.title.toLowerCase())) {
+            pendingProjectIds.add(project.id);
+          }
+        });
+
+        setPendingRequests(pendingProjectIds);
+      }
+    );
+
+    return () => unsubscribe();
+  }, [authUser?.uid, projects]);
 
   const [userTags, setUserTags] = useState<string[]>([]);
 
@@ -215,6 +306,18 @@ export default function Feed() {
       return;
     }
 
+    // Check if user has already joined this project
+    if (joinedProjects.has(project.id)) {
+      Alert.alert('Info', 'You are already a member of this project.');
+      return;
+    }
+
+    // Check if user already has a pending request for this project
+    if (pendingRequests.has(project.id)) {
+      Alert.alert('Info', 'You already have a pending request for this project. Please wait for the project owner to respond.');
+      return;
+    }
+
     setSelectedProject(project);
     setRequestModalVisible(true);
   };
@@ -235,15 +338,17 @@ export default function Feed() {
         authUser.email || '', // fromUserEmail
         selectedProject.uid, // toUserId (project owner)
         selectedProject.title, // projectName
-        'join_project', // type
         message, // message
         selectedProject.id // projectId
       );
 
       if (requestId) {
+        // Immediately update pending requests for instant UI feedback
+        setPendingRequests(prev => new Set(prev).add(selectedProject.id));
+        
         Alert.alert(
           'Request Sent!',
-          `Your request to join "${selectedProject.title}" has been sent to ${selectedProject.username}.`
+          `Your request to join "${selectedProject.title}" has been sent to ${selectedProject.username}. You'll be notified when they respond.`
         );
         setRequestModalVisible(false);
         setSelectedProject(null);
@@ -259,6 +364,64 @@ export default function Feed() {
     } finally {
       setSendingRequest(false);
     }
+  };
+
+  // Function to determine button state and render accordingly
+  const renderProjectButton = (project: Project) => {
+    const isOwner = authUser && project.uid === authUser.uid;
+    const isJoined = joinedProjects.has(project.id);
+    const isPending = pendingRequests.has(project.id);
+
+    if (isOwner) {
+      return (
+        <View style={[styles.chatButton, styles.ownProjectButton]}>
+          <ThemedText style={{ color: DARK_PURPLE }}>
+            Your Project
+          </ThemedText>
+        </View>
+      );
+    }
+
+    if (isJoined) {
+      return (
+        <View style={[styles.chatButton, styles.joinedButton]}>
+          <View style={styles.joinedButtonContent}>
+            <Ionicons name="checkmark-circle" size={20} color="#4CAF50" />
+            <ThemedText style={styles.joinedButtonText}>
+              Joined
+            </ThemedText>
+          </View>
+        </View>
+      );
+    }
+
+    if (isPending) {
+      return (
+        <View style={[styles.chatButton, styles.pendingButton]}>
+          <View style={styles.pendingButtonContent}>
+            <Ionicons name="time-outline" size={20} color="#FF9800" />
+            <ThemedText style={styles.pendingButtonText}>
+              Request Pending
+            </ThemedText>
+          </View>
+        </View>
+      );
+    }
+
+    return (
+      <TouchableOpacity
+        style={[
+          styles.chatButton,
+          sendingRequest && styles.disabledButton
+        ]}
+        onPress={() => openRequestModal(project)}
+        disabled={sendingRequest}
+      >
+        <ThemedText style={{ color: 'white' }}>
+          Request to Join Project
+        </ThemedText>
+      </TouchableOpacity>
+    );
   };
 
   const renderProject = ({ item }: { item: Project }) => (
@@ -378,30 +541,8 @@ export default function Feed() {
               </View>
               <ThemedText>{project.description}</ThemedText>
               
-              {/* Only show request button if it's not the user's own project */}
-              {authUser && project.uid !== authUser.uid && (
-                <TouchableOpacity
-                  style={[
-                    styles.chatButton,
-                    sendingRequest && styles.disabledButton
-                  ]}
-                  onPress={() => openRequestModal(project)}
-                  disabled={sendingRequest}
-                >
-                  <ThemedText style={{ color: 'white' }}>
-                    Request to Join Project
-                  </ThemedText>
-                </TouchableOpacity>
-              )}
-              
-              {/* Show different message for user's own projects */}
-              {authUser && project.uid === authUser.uid && (
-                <View style={[styles.chatButton, styles.ownProjectButton]}>
-                  <ThemedText style={{ color: DARK_PURPLE }}>
-                    Your Project
-                  </ThemedText>
-                </View>
-              )}
+              {/* Render appropriate button based on user status */}
+              {authUser && renderProjectButton(project)}
             </View>
           ))}
         </View>
@@ -533,6 +674,34 @@ const styles = StyleSheet.create({
     backgroundColor: 'transparent',
     borderWidth: 2,
     borderColor: DARK_PURPLE,
+  },
+  joinedButton: {
+    backgroundColor: '#f8f9fa',
+    borderWidth: 2,
+    borderColor: '#4CAF50',
+  },
+  joinedButtonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  joinedButtonText: {
+    color: '#4CAF50',
+    fontWeight: '600',
+  },
+  pendingButton: {
+    backgroundColor: '#fff3e0',
+    borderWidth: 2,
+    borderColor: '#FF9800',
+  },
+  pendingButtonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  pendingButtonText: {
+    color: '#FF9800',
+    fontWeight: '600',
   },
   postButton: {
     backgroundColor: DARK_PURPLE,

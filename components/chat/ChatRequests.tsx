@@ -13,17 +13,19 @@ import {
   Card,
 } from 'react-native-paper';
 import { ThemedView } from '@/components/ThemedView';
-import { ChatService, ProjectRequest, RequestItem } from '../../services/chatService'; // Adjust import path
+import { ChatService, ProjectRequest, RequestItem } from '../../services/chatService';
 
 interface ProjectRequestsProps {
   onBack: () => void;
   onAcceptRequest: (request: RequestItem) => void;
-  currentUserId: string; // Add this prop
+  onStartDM: (request: RequestItem) => void;
+  currentUserId: string;
 }
 
 export function ProjectRequests({ 
   onBack, 
   onAcceptRequest, 
+  onStartDM,
   currentUserId 
 }: ProjectRequestsProps): JSX.Element {
   const [requests, setRequests] = useState<RequestItem[]>([]);
@@ -78,12 +80,7 @@ export function ProjectRequests({
         // Call the parent's callback for any additional UI updates
         onAcceptRequest(request);
         
-        // Show success message
-        const actionMessage = request.startDM 
-          ? 'DM conversation started!' 
-          : 'User added to project!';
-          
-        Alert.alert('Success', actionMessage);
+        Alert.alert('Success', 'User added to project group chat!');
       } else {
         Alert.alert('Error', 'Failed to process request. Please try again.');
       }
@@ -100,7 +97,46 @@ export function ProjectRequests({
     }
   };
 
-  // Handle declining a request
+  // Handle starting a DM with the requester
+  const handleStartDM = async (request: RequestItem): Promise<void> => {
+    // Add to processing set to show loading state
+    setProcessingRequests(prev => new Set(prev).add(request.id));
+
+    try {
+      // Get the project owner's details
+      const ownerDetails = await ChatService.getProjectOwnerDetails(currentUserId, request.project);
+      
+      const dmId = await ChatService.createRequestDM(
+        request.id, // requestId
+        request.fromUserId, // requesterId
+        request.name, // requesterName
+        '', // requesterEmail (we don't have this, but it's not critical)
+        currentUserId, // ownerId
+        ownerDetails?.displayName || 'Project Owner', // ownerName
+        ownerDetails?.email || '', // ownerEmail
+        request.project.toLowerCase().replace(/\s+/g, '-'), // projectId
+        request.project // projectName
+      );
+
+      if (dmId) {
+        // Call the parent's callback to navigate to the DM
+        onStartDM(request);
+        Alert.alert('Success', 'Temporary chat started! You can now discuss the request privately.');
+      } else {
+        Alert.alert('Error', 'Failed to start chat. Please try again.');
+      }
+    } catch (error) {
+      console.error('Error starting DM:', error);
+      Alert.alert('Error', 'An unexpected error occurred.');
+    } finally {
+      // Remove from processing set
+      setProcessingRequests(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(request.id);
+        return newSet;
+      });
+    }
+  };
   const handleDeclineRequest = async (requestId: string): Promise<void> => {
     // Add to processing set to show loading state
     setProcessingRequests(prev => new Set(prev).add(requestId));
@@ -126,18 +162,6 @@ export function ProjectRequests({
     }
   };
 
-  // Get request type display text
-  const getRequestTypeText = (request: RequestItem): string => {
-    return request.startDM 
-      ? 'wants to start a conversation' 
-      : 'wants to join your project';
-  };
-
-  // Get request type chip color
-  const getRequestTypeColor = (request: RequestItem): string => {
-    return request.startDM ? '#4CAF50' : '#2196F3';
-  };
-
   // Render individual request item
   const renderRequestItem = ({ item }: { item: RequestItem }): JSX.Element => {
     const isProcessing = processingRequests.has(item.id);
@@ -159,20 +183,17 @@ export function ProjectRequests({
                   {item.name}
                 </Text>
                 <Text variant="bodySmall" style={styles.requestType}>
-                  {getRequestTypeText(item)}
+                  wants to join your project
                 </Text>
               </View>
             </View>
             
-            <Chip
-              style={[
-                styles.typeChip,
-                { backgroundColor: getRequestTypeColor(item) }
-              ]}
+            {/* <Chip
+              style={[styles.typeChip, { backgroundColor: '#2196F3' }]}
               textStyle={styles.typeChipText}
             >
-              {item.startDM ? 'DM' : 'JOIN'}
-            </Chip>
+              JOIN
+            </Chip> */}
           </View>
 
           <View style={styles.projectInfo}>
@@ -195,22 +216,51 @@ export function ProjectRequests({
             </View>
           )}
 
+          {/* Show status if DM exists */}
+          {item.hasDM && (
+            <View style={styles.dmStatusContainer}>
+              <Text variant="bodySmall" style={styles.dmStatusText}>
+                💬 Temporary chat is active
+              </Text>
+            </View>
+          )}
+
+
+          {/* DM Button - only show if no DM exists yet */}
+          {!item.hasDM && (
+            <Button
+              mode="outlined"
+              icon="message-outline"
+              onPress={() => handleStartDM(item)}
+              disabled={isProcessing}
+              style={styles.dmButton}
+              compact
+            >
+              1-on-1 Chat
+            </Button>
+          )}
+
+          {/* Spacer */}
+          <View style={{ height: 8 }} />
+
+          {/* Action buttons */}
+
           <View style={styles.requestActions}>
             <Button
               mode="contained"
               onPress={() => handleAcceptRequest(item)}
               disabled={isProcessing}
               loading={isProcessing}
-              style={styles.acceptButton}
+              style={[styles.acceptButton, item.hasDM && styles.acceptButtonWide]}
             >
-              {item.startDM ? 'Start Chat' : 'Accept'}
+              Accept
             </Button>
             
             <Button
               mode="outlined"
               onPress={() => handleDeclineRequest(item.id)}
               disabled={isProcessing}
-              style={styles.declineButton}
+              style={[styles.declineButton, item.hasDM && styles.declineButtonWide]}
             >
               Decline
             </Button>
@@ -270,8 +320,7 @@ export function ProjectRequests({
             No pending requests
           </Text>
           <Text variant="bodyMedium" style={styles.emptySubtext}>
-            When people want to join your projects or start conversations, 
-            their requests will appear here.
+            When people want to join your projects, their requests will appear here.
           </Text>
         </View>
       ) : (
@@ -373,16 +422,37 @@ const styles = StyleSheet.create({
   messageText: {
     fontStyle: 'italic',
   },
+  dmStatusContainer: {
+    marginBottom: 12,
+    padding: 8,
+    backgroundColor: '#e8f5e8',
+    borderRadius: 6,
+    borderLeftWidth: 3,
+    borderLeftColor: '#4CAF50',
+  },
+  dmStatusText: {
+    color: '#2E7D32',
+    fontWeight: '500',
+  },
   requestActions: {
     flexDirection: 'row',
-    gap: 12,
+    gap: 8,
     marginBottom: 8,
+  },
+  dmButton: {
+    flex: 0.3,
   },
   acceptButton: {
     flex: 1,
   },
+  acceptButtonWide: {
+    flex: 1.2,
+  },
   declineButton: {
     flex: 1,
+  },
+  declineButtonWide: {
+    flex: 1.2,
   },
   timestampContainer: {
     alignItems: 'flex-end',

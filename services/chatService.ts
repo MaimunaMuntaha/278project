@@ -20,21 +20,56 @@ import {
 } from 'firebase/firestore';
 import { db } from '../firebase';
 
-// Enhanced type definitions
+// Type definitions
 export interface ProjectRequest {
   id: string;
   fromUserId: string;
   fromUserName: string;
   fromUserEmail: string;
   fromUserAvatar?: string;
-  toUserId: string; // project owner or recipient
+  toUserId: string; // project owner
   projectId?: string;
   projectName: string;
   message?: string;
   status: 'pending' | 'accepted' | 'declined';
-  type: 'join_project' | 'start_dm';
+  type: 'join_project';
   createdAt: Timestamp;
   updatedAt: Timestamp;
+  hasDM?: boolean; // Whether a temporary DM has been created for this request
+}
+
+// Temporary DM for project requests
+export interface RequestDM {
+  id: string;
+  requestId: string; // Links to the project request
+  participants: string[]; // [requesterId, projectOwnerId]
+  participantDetails: Record<string, {
+    userId: string;
+    displayName: string;
+    email: string;
+  }>;
+  projectContext: {
+    projectId: string;
+    projectName: string;
+  };
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+  lastMessage?: {
+    text: string;
+    senderId: string;
+    senderName: string;
+    timestamp: Timestamp;
+  };
+  isActive: boolean;
+}
+
+export interface RequestDMMessage {
+  id: string;
+  senderId: string;
+  senderName: string;
+  text: string;
+  timestamp: Timestamp;
+  type: 'text' | 'system';
 }
 
 export interface RequestItem {
@@ -43,12 +78,11 @@ export interface RequestItem {
   project: string;
   avatar?: any;
   message?: string;
-  startDM: boolean; // true for DM requests, false for project join requests
   fromUserId: string;
   timestamp: Date;
+  hasDM?: boolean; // Whether a DM exists for this request
 }
 
-// Firebase data structures (keeping existing ones)
 export interface FirebaseChatMember {
   userId: string;
   displayName: string;
@@ -74,7 +108,7 @@ export interface FirebaseGroupChat {
   id: string;
   projectName: string;
   description?: string;
-  memberIds: string[]; // NEW: Array of user IDs for efficient querying
+  memberIds: string[]; // Array of user IDs for efficient querying
   members: Record<string, FirebaseChatMember>; // userId -> member info
   createdAt: Timestamp;
   updatedAt: Timestamp;
@@ -92,13 +126,15 @@ export interface FirebaseGroupChat {
 }
 
 export class ChatService {
+  // ============ GROUP CHAT FUNCTIONS ============
+  
   // Get all group chats where user is a member
   static async getUserGroupChats(userId: string): Promise<FirebaseGroupChat[]> {
     try {
       const chatsRef = collection(db, 'groupChats');
       const q = query(
         chatsRef,
-        where('memberIds', 'array-contains', userId), // CHANGED: Use array-contains instead of dynamic field
+        where('memberIds', 'array-contains', userId),
         where('isActive', '==', true),
         orderBy('updatedAt', 'desc')
       );
@@ -125,7 +161,7 @@ export class ChatService {
     const chatsRef = collection(db, 'groupChats');
     const q = query(
       chatsRef,
-      where('memberIds', 'array-contains', userId), // CHANGED: Use array-contains instead of dynamic field
+      where('memberIds', 'array-contains', userId),
       where('isActive', '==', true),
       orderBy('updatedAt', 'desc')
     );
@@ -157,16 +193,9 @@ export class ChatService {
         return querySnapshot.size;
       }
 
-      // Count messages after the last read message
-      const messagesRef = collection(db, 'groupChats', chatId, 'messages');
-      const q = query(
-        messagesRef,
-        where('timestamp', '>', Timestamp.now()), // You'll need to store and compare with lastReadAt timestamp
-        orderBy('timestamp', 'desc')
-      );
-      
-      const querySnapshot = await getDocs(q);
-      return querySnapshot.size;
+      // For now, return 0 if they have a lastReadMessageId
+      // TODO: Implement proper timestamp-based unread counting
+      return 0;
     } catch (error) {
       console.error('Error getting unread message count:', error);
       return 0;
@@ -189,7 +218,7 @@ export class ChatService {
       const newChat: Omit<FirebaseGroupChat, 'id'> = {
         projectName,
         description,
-        memberIds: [creatorId], // NEW: Initialize with creator's ID
+        memberIds: [creatorId],
         members: {
           [creatorId]: {
             userId: creatorId,
@@ -216,7 +245,420 @@ export class ChatService {
     }
   }
 
-  // ============ NEW REQUEST MANAGEMENT FUNCTIONS ============
+  // Subscribe to real-time messages for a group chat
+  static subscribeToGroupChatMessages(
+    chatId: string,
+    callback: (messages: FirebaseChatMessage[]) => void
+  ): () => void {
+    const messagesRef = collection(db, 'groupChats', chatId, 'messages');
+    const q = query(
+      messagesRef,
+      orderBy('timestamp', 'asc'),
+      limit(100)
+    );
+
+    const unsubscribe = onSnapshot(q, (querySnapshot: QuerySnapshot<DocumentData>) => {
+      const messages: FirebaseChatMessage[] = [];
+      querySnapshot.forEach((doc) => {
+        const data = doc.data();
+        messages.push({
+          id: doc.id,
+          senderId: data.senderId,
+          senderName: data.senderName,
+          text: data.text,
+          timestamp: data.timestamp,
+          type: data.type || 'text',
+          edited: data.edited || false,
+          editedAt: data.editedAt
+        } as FirebaseChatMessage);
+      });
+      callback(messages);
+    }, (error) => {
+      console.error('Error in messages subscription:', error);
+    });
+
+    return unsubscribe;
+  }
+
+  // Send a message to a group chat
+  static async sendGroupChatMessage(
+    chatId: string,
+    senderId: string,
+    senderName: string,
+    text: string,
+    type: 'text' | 'image' | 'file' = 'text'
+  ): Promise<boolean> {
+    try {
+      const messagesRef = collection(db, 'groupChats', chatId, 'messages');
+      const now = Timestamp.now();
+      
+      const newMessage: Omit<FirebaseChatMessage, 'id'> = {
+        senderId,
+        senderName,
+        text,
+        timestamp: now,
+        type,
+        edited: false
+      };
+
+      await addDoc(messagesRef, newMessage);
+
+      const chatRef = doc(db, 'groupChats', chatId);
+      await updateDoc(chatRef, {
+        lastMessage: {
+          text,
+          senderId,
+          senderName,
+          timestamp: now
+        },
+        updatedAt: now
+      });
+
+      return true;
+    } catch (error) {
+      console.error('Error sending group chat message:', error);
+      return false;
+    }
+  }
+
+  // Get messages for a group chat (one-time fetch)
+  static async getGroupChatMessages(
+    chatId: string,
+    messageLimit: number = 50
+  ): Promise<FirebaseChatMessage[]> {
+    try {
+      const messagesRef = collection(db, 'groupChats', chatId, 'messages');
+      const q = query(
+        messagesRef,
+        orderBy('timestamp', 'desc'),
+        limit(messageLimit)
+      );
+
+      const querySnapshot = await getDocs(q);
+      const messages: FirebaseChatMessage[] = [];
+      
+      querySnapshot.forEach((doc) => {
+        const data = doc.data();
+        messages.push({
+          id: doc.id,
+          senderId: data.senderId,
+          senderName: data.senderName,
+          text: data.text,
+          timestamp: data.timestamp,
+          type: data.type || 'text',
+          edited: data.edited || false,
+          editedAt: data.editedAt
+        } as FirebaseChatMessage);
+      });
+
+      return messages.reverse();
+    } catch (error) {
+      console.error('Error fetching group chat messages:', error);
+      return [];
+    }
+  }
+
+  static async getGroupChatById(chatId: string): Promise<FirebaseGroupChat | null> {
+    try {
+      const chatRef = doc(db, 'groupChats', chatId);
+      const chatDoc = await getDoc(chatRef);
+      
+      if (!chatDoc.exists()) {
+        return null;
+      }
+      
+      return { id: chatDoc.id, ...chatDoc.data() } as FirebaseGroupChat;
+    } catch (error) {
+      console.error('Error fetching group chat by ID:', error);
+      return null;
+    }
+  }
+
+  // Mark messages as read for a user
+  static async markMessagesAsRead(
+    chatId: string,
+    userId: string,
+    lastMessageId: string
+  ): Promise<boolean> {
+    try {
+      const chatRef = doc(db, 'groupChats', chatId);
+      await updateDoc(chatRef, {
+        [`members.${userId}.lastReadMessageId`]: lastMessageId,
+        [`members.${userId}.lastReadAt`]: Timestamp.now()
+      });
+      return true;
+    } catch (error) {
+      console.error('Error marking messages as read:', error);
+      return false;
+    }
+  }
+
+  // ============ REQUEST DM FUNCTIONS ============
+
+  // Create a temporary DM for a project request
+  static async createRequestDM(
+    requestId: string,
+    requesterId: string,
+    requesterName: string,
+    requesterEmail: string,
+    ownerId: string,
+    ownerName: string,
+    ownerEmail: string,
+    projectId: string,
+    projectName: string
+  ): Promise<string | null> {
+    try {
+      // Check if a DM already exists for this request
+      const existingDM = await this.getRequestDMByRequestId(requestId);
+      if (existingDM) {
+        return existingDM.id;
+      }
+
+      const requestDMsRef = collection(db, 'requestDMs');
+      const newDMRef = doc(requestDMsRef);
+      
+      const now = Timestamp.now();
+      const participants = [requesterId, ownerId].sort(); // Sort for consistency
+      
+      const newRequestDM: Omit<RequestDM, 'id'> = {
+        requestId,
+        participants,
+        participantDetails: {
+          [requesterId]: {
+            userId: requesterId,
+            displayName: requesterName,
+            email: requesterEmail
+          },
+          [ownerId]: {
+            userId: ownerId,
+            displayName: ownerName,
+            email: ownerEmail
+          }
+        },
+        projectContext: {
+          projectId,
+          projectName
+        },
+        createdAt: now,
+        updatedAt: now,
+        isActive: true
+      };
+
+      await setDoc(newDMRef, newRequestDM);
+
+      // Mark the request as having a DM
+      const requestRef = doc(db, 'projectRequests', requestId);
+      await updateDoc(requestRef, {
+        hasDM: true,
+        updatedAt: now
+      });
+
+      // Add a system message to start the conversation
+      await this.sendRequestDMMessage(
+        newDMRef.id,
+        'system',
+        'System',
+        `This is a temporary chat about the request to join "${projectName}". This conversation will be closed when the request is resolved.`,
+        'system'
+      );
+
+      return newDMRef.id;
+    } catch (error) {
+      console.error('Error creating request DM:', error);
+      return null;
+    }
+  }
+
+  // Get request DM by request ID
+  static async getRequestDMByRequestId(requestId: string): Promise<RequestDM | null> {
+    try {
+      const requestDMsRef = collection(db, 'requestDMs');
+      const q = query(
+        requestDMsRef,
+        where('requestId', '==', requestId),
+        where('isActive', '==', true),
+        limit(1)
+      );
+
+      const querySnapshot = await getDocs(q);
+      if (!querySnapshot.empty) {
+        const doc = querySnapshot.docs[0];
+        return { id: doc.id, ...doc.data() } as RequestDM;
+      }
+      return null;
+    } catch (error) {
+      console.error('Error getting request DM by request ID:', error);
+      return null;
+    }
+  }
+
+  // Get request DM by ID
+  static async getRequestDMById(dmId: string): Promise<RequestDM | null> {
+    try {
+      const dmRef = doc(db, 'requestDMs', dmId);
+      const dmDoc = await getDoc(dmRef);
+      
+      if (!dmDoc.exists()) {
+        return null;
+      }
+      
+      return { id: dmDoc.id, ...dmDoc.data() } as RequestDM;
+    } catch (error) {
+      console.error('Error fetching request DM by ID:', error);
+      return null;
+    }
+  }
+
+  // Get all active request DMs for a user
+  static async getUserRequestDMs(userId: string): Promise<RequestDM[]> {
+    try {
+      const requestDMsRef = collection(db, 'requestDMs');
+      const q = query(
+        requestDMsRef,
+        where('participants', 'array-contains', userId),
+        where('isActive', '==', true),
+        orderBy('updatedAt', 'desc')
+      );
+
+      const querySnapshot = await getDocs(q);
+      const dms: RequestDM[] = [];
+      
+      querySnapshot.forEach((doc) => {
+        dms.push({ id: doc.id, ...doc.data() } as RequestDM);
+      });
+
+      return dms;
+    } catch (error) {
+      console.error('Error fetching user request DMs:', error);
+      return [];
+    }
+  }
+
+  // Subscribe to real-time updates for user's request DMs
+  static subscribeToUserRequestDMs(
+    userId: string,
+    callback: (dms: RequestDM[]) => void
+  ): () => void {
+    const requestDMsRef = collection(db, 'requestDMs');
+    const q = query(
+      requestDMsRef,
+      where('participants', 'array-contains', userId),
+      where('isActive', '==', true),
+      orderBy('updatedAt', 'desc')
+    );
+
+    const unsubscribe = onSnapshot(q, (querySnapshot: QuerySnapshot<DocumentData>) => {
+      const dms: RequestDM[] = [];
+      querySnapshot.forEach((doc) => {
+        dms.push({ id: doc.id, ...doc.data() } as RequestDM);
+      });
+      callback(dms);
+    }, (error) => {
+      console.error('Error in request DM subscription:', error);
+    });
+
+    return unsubscribe;
+  }
+
+  // Send a message in a request DM
+  static async sendRequestDMMessage(
+    dmId: string,
+    senderId: string,
+    senderName: string,
+    text: string,
+    type: 'text' | 'system' = 'text'
+  ): Promise<boolean> {
+    try {
+      const messagesRef = collection(db, 'requestDMs', dmId, 'messages');
+      const now = Timestamp.now();
+      
+      const newMessage: Omit<RequestDMMessage, 'id'> = {
+        senderId,
+        senderName,
+        text,
+        timestamp: now,
+        type
+      };
+
+      // Add the message to the messages subcollection
+      await addDoc(messagesRef, newMessage);
+
+      // Update the DM's last message (unless it's a system message)
+      if (type !== 'system') {
+        const dmRef = doc(db, 'requestDMs', dmId);
+        await updateDoc(dmRef, {
+          lastMessage: {
+            text,
+            senderId,
+            senderName,
+            timestamp: now
+          },
+          updatedAt: now
+        });
+      }
+
+      return true;
+    } catch (error) {
+      console.error('Error sending request DM message:', error);
+      return false;
+    }
+  }
+
+  // Subscribe to real-time messages for a request DM
+  static subscribeToRequestDMMessages(
+    dmId: string,
+    callback: (messages: RequestDMMessage[]) => void
+  ): () => void {
+    const messagesRef = collection(db, 'requestDMs', dmId, 'messages');
+    const q = query(
+      messagesRef,
+      orderBy('timestamp', 'asc'),
+      limit(100)
+    );
+
+    const unsubscribe = onSnapshot(q, (querySnapshot: QuerySnapshot<DocumentData>) => {
+      const messages: RequestDMMessage[] = [];
+      querySnapshot.forEach((doc) => {
+        const data = doc.data();
+        messages.push({
+          id: doc.id,
+          senderId: data.senderId,
+          senderName: data.senderName,
+          text: data.text,
+          timestamp: data.timestamp,
+          type: data.type || 'text'
+        } as RequestDMMessage);
+      });
+      callback(messages);
+    }, (error) => {
+      console.error('Error in request DM messages subscription:', error);
+    });
+
+    return unsubscribe;
+  }
+
+  // Close a request DM (when request is resolved)
+  static async closeRequestDM(requestId: string): Promise<boolean> {
+    try {
+      const requestDM = await this.getRequestDMByRequestId(requestId);
+      if (!requestDM) {
+        return true; // Already closed or doesn't exist
+      }
+
+      const dmRef = doc(db, 'requestDMs', requestDM.id);
+      await updateDoc(dmRef, {
+        isActive: false,
+        updatedAt: Timestamp.now()
+      });
+
+      return true;
+    } catch (error) {
+      console.error('Error closing request DM:', error);
+      return false;
+    }
+  }
+
+  // ============ REQUEST MANAGEMENT FUNCTIONS ============
 
   // Create a new project request
   static async createProjectRequest(
@@ -225,13 +667,12 @@ export class ChatService {
     fromUserEmail: string,
     toUserId: string,
     projectName: string,
-    type: 'join_project' | 'start_dm',
     message?: string,
     projectId?: string
   ): Promise<string | null> {
     try {
       // Check if request already exists
-      const existingRequest = await this.getExistingRequest(fromUserId, toUserId, projectName, type);
+      const existingRequest = await this.getExistingRequest(fromUserId, toUserId, projectName);
       if (existingRequest) {
         console.log('Request already exists');
         return existingRequest.id;
@@ -249,7 +690,7 @@ export class ChatService {
         projectName,
         message,
         status: 'pending',
-        type,
+        type: 'join_project',
         createdAt: now,
         updatedAt: now
       };
@@ -266,8 +707,7 @@ export class ChatService {
   private static async getExistingRequest(
     fromUserId: string,
     toUserId: string,
-    projectName: string,
-    type: 'join_project' | 'start_dm'
+    projectName: string
   ): Promise<ProjectRequest | null> {
     try {
       const requestsRef = collection(db, 'projectRequests');
@@ -276,7 +716,7 @@ export class ChatService {
         where('fromUserId', '==', fromUserId),
         where('toUserId', '==', toUserId),
         where('projectName', '==', projectName),
-        where('type', '==', type),
+        where('type', '==', 'join_project'),
         where('status', '==', 'pending')
       );
 
@@ -292,7 +732,56 @@ export class ChatService {
     }
   }
 
-  // Get all pending requests for a user (requests TO them)
+  // Get all requests sent by a user (outgoing requests)
+  static async getUserSentRequests(userId: string): Promise<ProjectRequest[]> {
+    try {
+      const requestsRef = collection(db, 'projectRequests');
+      const q = query(
+        requestsRef,
+        where('fromUserId', '==', userId),
+        where('status', '==', 'pending'),
+        orderBy('createdAt', 'desc')
+      );
+
+      const querySnapshot = await getDocs(q);
+      const requests: ProjectRequest[] = [];
+      
+      querySnapshot.forEach((doc) => {
+        requests.push({ id: doc.id, ...doc.data() } as ProjectRequest);
+      });
+
+      return requests;
+    } catch (error) {
+      console.error('Error fetching user sent requests:', error);
+      return [];
+    }
+  }
+
+  // Subscribe to real-time updates for user's sent requests
+  static subscribeToUserSentRequests(
+    userId: string,
+    callback: (requests: ProjectRequest[]) => void
+  ): () => void {
+    const requestsRef = collection(db, 'projectRequests');
+    const q = query(
+      requestsRef,
+      where('fromUserId', '==', userId),
+      where('status', '==', 'pending'),
+      orderBy('createdAt', 'desc')
+    );
+
+    const unsubscribe = onSnapshot(q, (querySnapshot: QuerySnapshot<DocumentData>) => {
+      const requests: ProjectRequest[] = [];
+      querySnapshot.forEach((doc) => {
+        requests.push({ id: doc.id, ...doc.data() } as ProjectRequest);
+      });
+      callback(requests);
+    }, (error) => {
+      console.error('Error in sent requests subscription:', error);
+    });
+
+    return unsubscribe;
+  }
   static async getUserRequests(userId: string): Promise<ProjectRequest[]> {
     try {
       const requestsRef = collection(db, 'projectRequests');
@@ -362,51 +851,48 @@ export class ChatService {
         updatedAt: Timestamp.now()
       });
 
-      // If it's a join_project request, add user to the group chat
-      if (request.type === 'join_project') {
-        // Find the group chat by project name
-        let groupChat = await this.getGroupChatByProjectName(request.projectName);
+      // Close any associated request DM
+      await this.closeRequestDM(requestId);
+
+      // Find or create group chat for the project
+      let groupChat = await this.getGroupChatByProjectName(request.projectName);
+      
+      if (!groupChat) {
+        console.log(`No group chat found for project: ${request.projectName}. Creating one...`);
         
-        if (!groupChat) {
-          console.log(`No group chat found for project: ${request.projectName}. Creating one...`);
-          
-          // Find the project owner's details to create the group chat
-          const projectOwner = await this.getProjectOwnerDetails(request.toUserId, request.projectName);
-          
-          if (projectOwner) {
-            // Create a new group chat for this project
-            const groupChatId = await this.createGroupChat(
-              request.projectName,
-              `Group chat for ${request.projectName}`,
-              request.toUserId,
-              projectOwner.displayName,
-              projectOwner.email
-            );
-            
-            if (groupChatId) {
-              console.log(`Created new group chat ${groupChatId} for project ${request.projectName}`);
-              // Fetch the newly created group chat
-              groupChat = await this.getGroupChatByProjectName(request.projectName);
-            }
-          }
-        }
+        const projectOwner = await this.getProjectOwnerDetails(request.toUserId, request.projectName);
         
-        if (groupChat) {
-          const success = await this.addUserToGroupChat(
-            groupChat.id,
-            request.fromUserId,
-            request.fromUserName,
-            request.fromUserEmail
+        if (projectOwner) {
+          const groupChatId = await this.createGroupChat(
+            request.projectName,
+            `Group chat for ${request.projectName}`,
+            request.toUserId,
+            projectOwner.displayName,
+            projectOwner.email
           );
           
-          if (!success) {
-            console.error('Failed to add user to group chat');
-            // Don't return false here, the request was still accepted
+          if (groupChatId) {
+            console.log(`Created new group chat ${groupChatId} for project ${request.projectName}`);
+            groupChat = await this.getGroupChatByProjectName(request.projectName);
           }
-        } else {
-          console.error(`Failed to create or find group chat for project: ${request.projectName}`);
-          // The request is still accepted even if we can't create/find the group chat
         }
+      }
+      
+      if (groupChat) {
+        const success = await this.addUserToGroupChat(
+          groupChat.id,
+          request.fromUserId,
+          request.fromUserName,
+          request.fromUserEmail
+        );
+        
+        if (!success) {
+          console.error('Failed to add user to group chat');
+          return false;
+        }
+      } else {
+        console.error(`Failed to create or find group chat for project: ${request.projectName}`);
+        return false;
       }
 
       return true;
@@ -417,7 +903,7 @@ export class ChatService {
   }
 
   // Helper method to get project owner details
-  private static async getProjectOwnerDetails(
+  static async getProjectOwnerDetails(
     ownerId: string, 
     projectName: string
   ): Promise<{ displayName: string; email: string } | null> {
@@ -448,11 +934,10 @@ export class ChatService {
         const postData = querySnapshot.docs[0].data();
         return {
           displayName: postData.username || 'Anonymous',
-          email: '' // Posts don't store email, so we'll use empty string
+          email: ''
         };
       }
       
-      // Last resort: use the owner ID as display name
       return {
         displayName: 'Project Owner',
         email: ''
@@ -474,6 +959,10 @@ export class ChatService {
         status: 'declined',
         updatedAt: Timestamp.now()
       });
+
+      // Close any associated request DM
+      await this.closeRequestDM(requestId);
+      
       return true;
     } catch (error) {
       console.error('Error declining project request:', error);
@@ -500,29 +989,13 @@ export class ChatService {
 
       await updateDoc(chatRef, {
         [`members.${userId}`]: memberData,
-        memberIds: arrayUnion(userId), // NEW: Add to memberIds array
+        memberIds: arrayUnion(userId),
         updatedAt: Timestamp.now()
       });
 
       return true;
     } catch (error) {
       console.error('Error adding user to group chat:', error);
-      return false;
-    }
-  }
-
-  // Remove user from group chat
-  static async removeUserFromGroupChat(chatId: string, userId: string): Promise<boolean> {
-    try {
-      const chatRef = doc(db, 'groupChats', chatId);
-      await updateDoc(chatRef, {
-        [`members.${userId}`]: null,
-        memberIds: arrayRemove(userId), // NEW: Remove from memberIds array
-        updatedAt: Timestamp.now()
-      });
-      return true;
-    } catch (error) {
-      console.error('Error removing user from group chat:', error);
       return false;
     }
   }
@@ -550,24 +1023,6 @@ export class ChatService {
     }
   }
 
-  // Check if user is owner/admin of a group chat
-  static async isUserGroupChatAdmin(chatId: string, userId: string): Promise<boolean> {
-    try {
-      const chatRef = doc(db, 'groupChats', chatId);
-      const chatDoc = await getDoc(chatRef);
-      
-      if (!chatDoc.exists()) return false;
-      
-      const chatData = chatDoc.data() as FirebaseGroupChat;
-      const userMember = chatData.members[userId];
-      
-      return userMember && (userMember.role === 'owner' || userMember.role === 'admin');
-    } catch (error) {
-      console.error('Error checking user admin status:', error);
-      return false;
-    }
-  }
-
   // Convert ProjectRequest to RequestItem for UI compatibility
   static convertProjectRequestToRequestItem(request: ProjectRequest): RequestItem {
     return {
@@ -576,243 +1031,14 @@ export class ChatService {
       project: request.projectName,
       avatar: request.fromUserAvatar || null,
       message: request.message,
-      startDM: request.type === 'start_dm',
       fromUserId: request.fromUserId,
-      timestamp: request.createdAt.toDate()
+      timestamp: request.createdAt.toDate(),
+      hasDM: request.hasDM || false
     };
   }
 
   // Batch convert requests
   static convertProjectRequestsToRequestItems(requests: ProjectRequest[]): RequestItem[] {
     return requests.map(request => this.convertProjectRequestToRequestItem(request));
-  }
-
-  // Delete a request (useful for cleanup)
-  static async deleteProjectRequest(requestId: string): Promise<boolean> {
-    try {
-      const requestRef = doc(db, 'projectRequests', requestId);
-      await deleteDoc(requestRef);
-      return true;
-    } catch (error) {
-      console.error('Error deleting project request:', error);
-      return false;
-    }
-  }
-
-  // Subscribe to real-time messages for a group chat
-  static subscribeToGroupChatMessages(
-    chatId: string,
-    callback: (messages: FirebaseChatMessage[]) => void
-  ): () => void {
-    const messagesRef = collection(db, 'groupChats', chatId, 'messages');
-    const q = query(
-      messagesRef,
-      orderBy('timestamp', 'asc'),
-      limit(100) // Limit to last 100 messages for performance
-    );
-
-    const unsubscribe = onSnapshot(q, (querySnapshot: QuerySnapshot<DocumentData>) => {
-      const messages: FirebaseChatMessage[] = [];
-      querySnapshot.forEach((doc) => {
-        const data = doc.data();
-        messages.push({
-          id: doc.id,
-          senderId: data.senderId,
-          senderName: data.senderName,
-          text: data.text,
-          timestamp: data.timestamp,
-          type: data.type || 'text',
-          edited: data.edited || false,
-          editedAt: data.editedAt
-        } as FirebaseChatMessage);
-      });
-      callback(messages);
-    }, (error) => {
-      console.error('Error in messages subscription:', error);
-    });
-
-    return unsubscribe;
-  }
-
-  // Send a message to a group chat
-  static async sendGroupChatMessage(
-    chatId: string,
-    senderId: string,
-    senderName: string,
-    text: string,
-    type: 'text' | 'image' | 'file' = 'text'
-  ): Promise<boolean> {
-    try {
-      const messagesRef = collection(db, 'groupChats', chatId, 'messages');
-      const now = Timestamp.now();
-      
-      const newMessage: Omit<FirebaseChatMessage, 'id'> = {
-        senderId,
-        senderName,
-        text,
-        timestamp: now,
-        type,
-        edited: false
-      };
-
-      // Add the message to the messages subcollection
-      await addDoc(messagesRef, newMessage);
-
-      // Update the group chat's last message
-      const chatRef = doc(db, 'groupChats', chatId);
-      await updateDoc(chatRef, {
-        lastMessage: {
-          text,
-          senderId,
-          senderName,
-          timestamp: now
-        },
-        updatedAt: now
-      });
-
-      return true;
-    } catch (error) {
-      console.error('Error sending group chat message:', error);
-      return false;
-    }
-  }
-
-  // Get messages for a group chat (one-time fetch)
-  static async getGroupChatMessages(
-    chatId: string,
-    messageLimit: number = 50
-  ): Promise<FirebaseChatMessage[]> {
-    try {
-      const messagesRef = collection(db, 'groupChats', chatId, 'messages');
-      const q = query(
-        messagesRef,
-        orderBy('timestamp', 'desc'),
-        limit(messageLimit)
-      );
-
-      const querySnapshot = await getDocs(q);
-      const messages: FirebaseChatMessage[] = [];
-      
-      querySnapshot.forEach((doc) => {
-        const data = doc.data();
-        messages.push({
-          id: doc.id,
-          senderId: data.senderId,
-          senderName: data.senderName,
-          text: data.text,
-          timestamp: data.timestamp,
-          type: data.type || 'text',
-          edited: data.edited || false,
-          editedAt: data.editedAt
-        } as FirebaseChatMessage);
-      });
-
-      // Reverse to get chronological order (oldest first)
-      return messages.reverse();
-    } catch (error) {
-      console.error('Error fetching group chat messages:', error);
-      return [];
-    }
-  }
-
-  static async getGroupChatById(chatId: string): Promise<FirebaseGroupChat | null> {
-    try {
-      const chatRef = doc(db, 'groupChats', chatId);
-      const chatDoc = await getDoc(chatRef);
-      
-      if (!chatDoc.exists()) {
-        return null;
-      }
-      
-      return { id: chatDoc.id, ...chatDoc.data() } as FirebaseGroupChat;
-    } catch (error) {
-      console.error('Error fetching group chat by ID:', error);
-      return null;
-    }
-  }
-
-  // Mark messages as read for a user
-  static async markMessagesAsRead(
-    chatId: string,
-    userId: string,
-    lastMessageId: string
-  ): Promise<boolean> {
-    try {
-      const chatRef = doc(db, 'groupChats', chatId);
-      await updateDoc(chatRef, {
-        [`members.${userId}.lastReadMessageId`]: lastMessageId,
-        [`members.${userId}.lastReadAt`]: Timestamp.now()
-      });
-      return true;
-    } catch (error) {
-      console.error('Error marking messages as read:', error);
-      return false;
-    }
-  }
-
-  // Delete a message (for message senders or admins)
-  static async deleteMessage(
-    chatId: string,
-    messageId: string,
-    userId: string
-  ): Promise<boolean> {
-    try {
-      // Check if user is the sender or an admin
-      const isAdmin = await this.isUserGroupChatAdmin(chatId, userId);
-      const messageRef = doc(db, 'groupChats', chatId, 'messages', messageId);
-      const messageDoc = await getDoc(messageRef);
-      
-      if (!messageDoc.exists()) {
-        return false;
-      }
-      
-      const messageData = messageDoc.data();
-      const isSender = messageData.senderId === userId;
-      
-      if (!isSender && !isAdmin) {
-        console.error('User not authorized to delete this message');
-        return false;
-      }
-
-      await deleteDoc(messageRef);
-      return true;
-    } catch (error) {
-      console.error('Error deleting message:', error);
-      return false;
-    }
-  }
-
-  // Edit a message (for message senders)
-  static async editMessage(
-    chatId: string,
-    messageId: string,
-    userId: string,
-    newText: string
-  ): Promise<boolean> {
-    try {
-      const messageRef = doc(db, 'groupChats', chatId, 'messages', messageId);
-      const messageDoc = await getDoc(messageRef);
-      
-      if (!messageDoc.exists()) {
-        return false;
-      }
-      
-      const messageData = messageDoc.data();
-      if (messageData.senderId !== userId) {
-        console.error('User not authorized to edit this message');
-        return false;
-      }
-
-      await updateDoc(messageRef, {
-        text: newText,
-        edited: true,
-        editedAt: Timestamp.now()
-      });
-      
-      return true;
-    } catch (error) {
-      console.error('Error editing message:', error);
-      return false;
-    }
   }
 }

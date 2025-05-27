@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { StyleSheet, FlatList, View, KeyboardAvoidingView, Platform, Alert } from 'react-native';
 import {
   Appbar,
@@ -8,13 +8,11 @@ import {
   TextInput,
   useTheme,
   Divider,
-  Chip,
   ActivityIndicator,
 } from 'react-native-paper';
 import { ThemedView } from '@/components/ThemedView';
 import { ChatItem } from '@/app/(tabs)/chat';
-import { RequestItem } from '@/components/chat/ChatRequests';
-import { ChatService, FirebaseChatMessage } from '@/services/chatService';
+import { ChatService, FirebaseChatMessage, RequestDMMessage } from '@/services/chatService';
 import { useAuth } from '@/app/_layout';
 import { Timestamp } from 'firebase/firestore';
 
@@ -32,27 +30,34 @@ export const ChatDetail: React.FC<{
   chat: ChatItem;
   onBack: () => void;
   onMessageSent?: (chatId: string, messageText: string) => void;
-  requestData?: RequestItem;
-}> = ({ chat, onBack, onMessageSent, requestData }) => {
+}> = ({ chat, onBack, onMessageSent }) => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState<string>('');
-  const [requestHandled, setRequestHandled] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(true);
   const [sendingMessage, setSendingMessage] = useState<boolean>(false);
-  const [processingRequest, setProcessingRequest] = useState<boolean>(false);
   const [lastMessageId, setLastMessageId] = useState<string | null>(null);
   const { user: authUser } = useAuth();
   const theme = useTheme();
 
-  // Format project ID for display
-  const formatProjectName = (projectId: string): string => {
-    return projectId.split('-')
-      .map(word => word.charAt(0).toUpperCase() + word.slice(1))
-      .join(' ');
+  // Ref for auto-scrolling to bottom
+  const flatListRef = useRef<FlatList>(null);
+
+  // Auto-scroll to bottom function
+  const scrollToBottom = (animated: boolean = true) => {
+    if (flatListRef.current && messages.length > 0) {
+      setTimeout(() => {
+        try {
+          flatListRef.current?.scrollToEnd({ animated });
+        } catch (error) {
+          // Handle any scrolling errors gracefully
+          console.log('Scroll error:', error);
+        }
+      }, 100); // Small delay to ensure content is rendered
+    }
   };
 
-  // Convert Firebase message to local message format
-  const convertFirebaseMessage = (firebaseMsg: FirebaseChatMessage): Message => {
+  // Convert Firebase group message to local message format
+  const convertFirebaseGroupMessage = (firebaseMsg: FirebaseChatMessage): Message => {
     return {
       id: firebaseMsg.id,
       text: firebaseMsg.text,
@@ -66,14 +71,30 @@ export const ChatDetail: React.FC<{
     };
   };
 
+  // Convert RequestDMMessage to local message format
+  const convertRequestDMMessage = (dmMsg: RequestDMMessage): Message => {
+    return {
+      id: dmMsg.id,
+      text: dmMsg.text,
+      sender: dmMsg.senderName,
+      timestamp: dmMsg.timestamp.toDate().toLocaleTimeString([], { 
+        hour: '2-digit', 
+        minute: '2-digit' 
+      }),
+      isCurrentUser: dmMsg.senderId === authUser?.uid,
+      type: dmMsg.type === 'system' ? 'system' : 'text'
+    };
+  };
+
   const markMessagesAsRead = async (latestMessageId: string) => {
-    if (chat.type === 'group' && authUser?.uid && latestMessageId) {
+    if (authUser?.uid && latestMessageId && chat.type === 'group') {
       try {
         await ChatService.markMessagesAsRead(chat.id, authUser.uid, latestMessageId);
       } catch (error) {
         console.error('Error marking messages as read:', error);
       }
     }
+    // For request DMs, we don't need to track read status since they're temporary
   };
 
   // Subscribe to real-time messages
@@ -86,7 +107,7 @@ export const ChatDetail: React.FC<{
       const unsubscribe = ChatService.subscribeToGroupChatMessages(
         chat.id,
         async (firebaseMessages: FirebaseChatMessage[]) => {
-          const convertedMessages = firebaseMessages.map(convertFirebaseMessage);
+          const convertedMessages = firebaseMessages.map(convertFirebaseGroupMessage);
           setMessages(convertedMessages);
           
           // Mark messages as read if there are any messages
@@ -101,72 +122,85 @@ export const ChatDetail: React.FC<{
           }
           
           setLoading(false);
+          
+          // Auto-scroll to bottom when messages are loaded/updated
+          setTimeout(() => {
+            scrollToBottom(!loading); // No animation on initial load, animated for updates
+          }, 200);
         }
       );
 
       return () => unsubscribe();
-    } 
-    else if (chat.type === 'direct') {
-      // Handle direct messages as before
-      if (chat.requestId && messages.length === 0) {
-        const initialMessage: Message = {
-          id: Date.now().toString(),
-          text: `Hello! I wanted to discuss your request to join ${formatProjectName(chat.projectId || '')} before making a decision.`,
-          sender: 'Me',
-          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-          isCurrentUser: true,
-          type: 'text'
-        };
-        
-        setMessages([initialMessage]);
-      }
-      setLoading(false);
+    } else if (chat.type === 'request_dm') {
+      const unsubscribe = ChatService.subscribeToRequestDMMessages(
+        chat.id,
+        async (dmMessages: RequestDMMessage[]) => {
+          const convertedMessages = dmMessages.map(convertRequestDMMessage);
+          setMessages(convertedMessages);
+          setLoading(false);
+          
+          // Auto-scroll to bottom when messages are loaded/updated
+          setTimeout(() => {
+            scrollToBottom(!loading); // No animation on initial load, animated for updates
+          }, 200);
+        }
+      );
+
+      return () => unsubscribe();
     }
   }, [chat.id, chat.type, authUser]);
   
-
   useEffect(() => {
-    if (chat.type === 'group' && lastMessageId && authUser?.uid) {
+    if (lastMessageId && authUser?.uid) {
       markMessagesAsRead(lastMessageId);
     }
-  }, [lastMessageId, chat.type, authUser?.uid]);
+  }, [lastMessageId, authUser?.uid]);
 
-  // Updated handleSendMessage to mark own message as read
+  // Auto-scroll when chat is first opened or when returning to it
+  useEffect(() => {
+    if (!loading && messages.length > 0) {
+      setTimeout(() => {
+        scrollToBottom(false); // No animation when first opening
+      }, 300);
+    }
+  }, [loading, chat.id]); // Trigger when chat changes or loading completes
+
+  // Handle sending a message
   const handleSendMessage = async (): Promise<void> => {
     if (inputText.trim() === '' || !authUser) return;
     
     setSendingMessage(true);
     
     try {
+      let success = false;
+      
       if (chat.type === 'group') {
-        const success = await ChatService.sendGroupChatMessage(
+        success = await ChatService.sendGroupChatMessage(
           chat.id,
           authUser.uid,
           authUser.displayName || 'Anonymous',
           inputText.trim()
         );
+      } else if (chat.type === 'request_dm') {
+        success = await ChatService.sendRequestDMMessage(
+          chat.id,
+          authUser.uid,
+          authUser.displayName || 'Anonymous',
+          inputText.trim()
+        );
+      }
 
-        if (!success) {
-          Alert.alert('Error', 'Failed to send message. Please try again.');
-          return;
-        }
-
-        // The message will be automatically marked as read through the subscription
-      } else {
-        // For direct messages, add to local state
-        const newMessage: Message = {
-          id: Date.now().toString(),
-          text: inputText,
-          sender: 'Me',
-          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-          isCurrentUser: true,
-          type: 'text'
-        };
-        
-        setMessages(prev => [...prev, newMessage]);
+      if (!success) {
+        Alert.alert('Error', 'Failed to send message. Please try again.');
+        return;
       }
 
       setInputText('');
+      
+      // Auto-scroll to bottom after sending a message
+      setTimeout(() => {
+        scrollToBottom(true);
+      }, 150);
       
       if (onMessageSent) {
         onMessageSent(chat.id, inputText);
@@ -176,76 +210,6 @@ export const ChatDetail: React.FC<{
       Alert.alert('Error', 'Failed to send message. Please try again.');
     } finally {
       setSendingMessage(false);
-    }
-  };
-
-  // Handle accepting a request
-  const handleAcceptRequest = async (): Promise<void> => {
-    if (!chat.requestId) return;
-    
-    setProcessingRequest(true);
-    
-    try {
-      const success = await ChatService.acceptProjectRequest(chat.requestId);
-      
-      if (success) {
-        // Add a system message to indicate the request was accepted
-        const systemMessage: Message = {
-          id: Date.now().toString(),
-          text: "✅ You've accepted this request. The user has been added to the project.",
-          sender: 'System',
-          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-          isCurrentUser: false,
-          type: 'system'
-        };
-        
-        setMessages(prev => [...prev, systemMessage]);
-        setRequestHandled(true);
-        
-        Alert.alert('Success', 'Request accepted! The user has been added to the project.');
-      } else {
-        Alert.alert('Error', 'Failed to accept request. Please try again.');
-      }
-    } catch (error) {
-      console.error('Error accepting request:', error);
-      Alert.alert('Error', 'Failed to accept request. Please try again.');
-    } finally {
-      setProcessingRequest(false);
-    }
-  };
-  
-  // Handle declining a request
-  const handleDeclineRequest = async (): Promise<void> => {
-    if (!chat.requestId) return;
-    
-    setProcessingRequest(true);
-    
-    try {
-      const success = await ChatService.declineProjectRequest(chat.requestId);
-      
-      if (success) {
-        // Add a system message to indicate the request was declined
-        const systemMessage: Message = {
-          id: Date.now().toString(),
-          text: "❌ You've declined this request.",
-          sender: 'System',
-          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-          isCurrentUser: false,
-          type: 'system'
-        };
-        
-        setMessages(prev => [...prev, systemMessage]);
-        setRequestHandled(true);
-        
-        Alert.alert('Request Declined', 'The request has been declined.');
-      } else {
-        Alert.alert('Error', 'Failed to decline request. Please try again.');
-      }
-    } catch (error) {
-      console.error('Error declining request:', error);
-      Alert.alert('Error', 'Failed to decline request. Please try again.');
-    } finally {
-      setProcessingRequest(false);
     }
   };
 
@@ -313,7 +277,10 @@ export const ChatDetail: React.FC<{
         <Appbar.BackAction onPress={onBack} />
         <Appbar.Content 
           title={chat.name}
-          subtitle={chat.type === 'direct' ? 'Direct Message' : `${chat.memberCount || 0} members`}
+          subtitle={chat.type === 'request_dm' 
+            ? 'Temporary request chat' 
+            : `${chat.memberCount || 0} members`
+          }
         />
         <Appbar.Action icon="information" onPress={() => console.log('Info')} />
       </Appbar.Header>
@@ -321,60 +288,46 @@ export const ChatDetail: React.FC<{
       <ThemedView style={styles.container}>
         <Divider />
 
-        {/* Project request info for direct messages */}
-        {chat.type === 'direct' && chat.projectId && (
-          <Surface style={styles.projectInfoContainer}>
-            <View style={styles.projectInfoContent}>
-              <Text style={styles.projectInfoText}>
-                Discussing request for:
-              </Text>
-              <Chip 
-                icon="folder" 
-                style={styles.projectChip}
-              >
-                {formatProjectName(chat.projectId)}
-              </Chip>
-            </View>
-            
-            {/* Action buttons for request */}
-            {chat.requestId && !requestHandled && (
-              <View style={styles.requestActions}>
-                <Button 
-                  mode="outlined" 
-                  compact 
-                  icon="close" 
-                  onPress={handleDeclineRequest}
-                  disabled={processingRequest}
-                  loading={processingRequest}
-                  style={[styles.requestActionButton, styles.declineButton]}
-                  labelStyle={styles.requestButtonLabel}
-                >
-                  Decline
-                </Button>
-                <Button 
-                  mode="outlined" 
-                  compact 
-                  icon="check" 
-                  onPress={handleAcceptRequest}
-                  disabled={processingRequest}
-                  loading={processingRequest}
-                  style={[styles.requestActionButton, styles.acceptButton]}
-                  labelStyle={styles.requestButtonLabel}
-                >
-                  Accept
-                </Button>
-              </View>
-            )}
-          </Surface>
+        {/* Welcome message for new chats */}
+        {messages.length === 0 && !loading && (
+          <View style={styles.welcomeMessageContainer}>
+            <Text variant="bodyMedium" style={styles.welcomeMessage}>
+              {chat.type === 'request_dm' 
+                ? 'This is a temporary chat for discussing the project request. It will close when the request is resolved.'
+                : `Welcome to the ${chat.name} project chat! Start the conversation.`
+              }
+            </Text>
+          </View>
         )}
 
         {/* Messages List */}
         <FlatList
+          ref={flatListRef}
           data={messages}
           renderItem={renderMessage}
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.messagesList}
           showsVerticalScrollIndicator={false}
+          maintainVisibleContentPosition={{
+            minIndexForVisible: 0,
+            autoscrollToTopThreshold: 10
+          }}
+          onContentSizeChange={() => {
+            // Auto-scroll when content size changes (new messages arrive)
+            if (!loading) {
+              setTimeout(() => {
+                scrollToBottom(true);
+              }, 100);
+            }
+          }}
+          onLayout={() => {
+            // Scroll to bottom when FlatList is laid out for the first time
+            if (!loading && messages.length > 0) {
+              setTimeout(() => {
+                scrollToBottom(false);
+              }, 200);
+            }
+          }}
         />
         
         {/* Input Area */}
@@ -387,6 +340,12 @@ export const ChatDetail: React.FC<{
             placeholder="New message..."
             outlineStyle={styles.inputOutline}
             disabled={sendingMessage}
+            onFocus={() => {
+              // Scroll to bottom when user focuses input
+              setTimeout(() => {
+                scrollToBottom(true);
+              }, 300); // Slight delay to account for keyboard animation
+            }}
           />
           <Button 
             mode="contained" 
@@ -465,43 +424,13 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     alignSelf: 'center',
   },
-  projectInfoContainer: {
-    flexDirection: 'column',
-    padding: 8,
-    paddingHorizontal: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#E5E5E5',
-  },
-  projectInfoContent: {
-    flexDirection: 'row',
+  welcomeMessageContainer: {
+    padding: 16,
     alignItems: 'center',
   },
-  projectInfoText: {
-    fontSize: 14,
-    marginRight: 8,
-  },
-  projectChip: {
-    height: 32,
-  },
-  requestActions: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    marginTop: 8,
-  },
-  requestActionButton: {
-    marginLeft: 8,
-    height: 36,
-  },
-  requestButtonLabel: {
-    fontSize: 12,
-    lineHeight: 12,
-    paddingTop: 2,
-    margin: 0,
-  },
-  declineButton: {
-    borderColor: 'rgba(244, 67, 54, 0.5)',
-  },
-  acceptButton: {
-    borderColor: 'rgba(76, 175, 80, 0.5)',
+  welcomeMessage: {
+    textAlign: 'center',
+    color: '#666',
+    fontStyle: 'italic',
   },
 });
