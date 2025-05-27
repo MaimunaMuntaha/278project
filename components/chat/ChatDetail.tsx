@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { StyleSheet, FlatList, View, KeyboardAvoidingView, Platform } from 'react-native';
+import React, { useState, useEffect, useRef } from 'react';
+import { StyleSheet, FlatList, View, KeyboardAvoidingView, Platform, Alert } from 'react-native';
 import {
   Appbar,
   Button,
@@ -8,11 +8,13 @@ import {
   TextInput,
   useTheme,
   Divider,
-  Chip,
+  ActivityIndicator,
 } from 'react-native-paper';
 import { ThemedView } from '@/components/ThemedView';
 import { ChatItem } from '@/app/(tabs)/chat';
-import { RequestItem } from '@/components/chat/ChatRequests';
+import { ChatService, FirebaseChatMessage, RequestDMMessage } from '@/services/chatService';
+import { useAuth } from '@/app/_layout';
+import { Timestamp } from 'firebase/firestore';
 
 interface Message {
   id: string;
@@ -20,178 +22,200 @@ interface Message {
   sender: string;
   timestamp: string;
   isCurrentUser: boolean;
+  type?: 'text' | 'system';
 }
-
-// Sample messages mapped by chat ID
-const messagesByChatId: Record<string, Message[]> = {
-  '1': [
-    {
-      id: '1-1',
-      text: 'Dolphin related stuff',
-      sender: 'JD',
-      timestamp: '10:30 AM',
-      isCurrentUser: true,
-    },
-    {
-      id: '1-2',
-      text: 'We need to do a lot of important work on the dolphin',
-      sender: 'CP',
-      timestamp: '10:32 AM',
-      isCurrentUser: false,
-    },
-  ],
-  '2': [
-    {
-      id: '2-1',
-      text: 'How is the spider robot project going?',
-      sender: 'Me',
-      timestamp: '2:15 PM',
-      isCurrentUser: true,
-    },
-    {
-      id: '2-2',
-      text: 'Making good progress on the leg mechanisms',
-      sender: 'Chris',
-      timestamp: '2:20 PM',
-      isCurrentUser: false,
-    },
-  ],
-  '3': [
-    {
-      id: '3-1',
-      text: 'I have some ideas for our collaborative essay',
-      sender: 'Me',
-      timestamp: '9:45 AM',
-      isCurrentUser: true,
-    },
-    {
-      id: '3-2',
-      text: 'Great, let me know what youre thinking!',
-      sender: 'FamousWriter123',
-      timestamp: '10:02 AM',
-      isCurrentUser: false,
-    },
-  ],
-  '4': [
-    {
-      id: '4-1',
-      text: 'Hello! I wanted to discuss your request to join the Essay Writing Project before making a decision.',
-      sender: 'Me',
-      timestamp: '10:05 AM',
-      isCurrentUser: true,
-    },
-    {
-      id: '4-2',
-      text: 'Thanks for reaching out! I have experience with collaborative writing and would love to contribute to the project.',
-      sender: 'Sam A.',
-      timestamp: '10:07 AM',
-      isCurrentUser: false,
-    },
-  ],
-};
 
 // Chat Detail Component
 export const ChatDetail: React.FC<{
   chat: ChatItem;
   onBack: () => void;
   onMessageSent?: (chatId: string, messageText: string) => void;
-  requestData?: RequestItem;
-}> = ({ chat, onBack, onMessageSent, requestData }) => {
-  const [messages, setMessages] = useState<Message[]>(
-    messagesByChatId[chat.id] || []
-  );
+}> = ({ chat, onBack, onMessageSent }) => {
+  const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState<string>('');
-  const [requestHandled, setRequestHandled] = useState<boolean>(false);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [sendingMessage, setSendingMessage] = useState<boolean>(false);
+  const [lastMessageId, setLastMessageId] = useState<string | null>(null);
+  const { user: authUser } = useAuth();
   const theme = useTheme();
 
-  // Format project ID for display
-  const formatProjectName = (projectId: string): string => {
-    return projectId.split('-')
-      .map(word => word.charAt(0).toUpperCase() + word.slice(1))
-      .join(' ');
+  // Ref for auto-scrolling to bottom
+  const flatListRef = useRef<FlatList>(null);
+
+  // Auto-scroll to bottom function
+  const scrollToBottom = (animated: boolean = true) => {
+    if (flatListRef.current && messages.length > 0) {
+      setTimeout(() => {
+        try {
+          flatListRef.current?.scrollToEnd({ animated });
+        } catch (error) {
+          // Handle any scrolling errors gracefully
+          console.log('Scroll error:', error);
+        }
+      }, 100); // Small delay to ensure content is rendered
+    }
   };
 
-  // Check if we need to initialize the messages for this chat
-  useEffect(() => {
-    // If this is a direct message chat with no messages
-    if (chat.type === 'direct' && chat.requestId && messages.length === 0) {
-      // Initialize with a default message
-      const initialMessage: Message = {
-        id: Date.now().toString(),
-        text: `Hello! I wanted to discuss your request to join ${formatProjectName(chat.projectId || '')} before making a decision.`,
-        sender: 'Me',
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        isCurrentUser: true,
-      };
-      
-      setMessages([initialMessage]);
-      
-      // Notify parent component
-      if (onMessageSent) {
-        onMessageSent(chat.id, initialMessage.text);
+  // Convert Firebase group message to local message format
+  const convertFirebaseGroupMessage = (firebaseMsg: FirebaseChatMessage): Message => {
+    return {
+      id: firebaseMsg.id,
+      text: firebaseMsg.text,
+      sender: firebaseMsg.senderName,
+      timestamp: firebaseMsg.timestamp.toDate().toLocaleTimeString([], { 
+        hour: '2-digit', 
+        minute: '2-digit' 
+      }),
+      isCurrentUser: firebaseMsg.senderId === authUser?.uid,
+      type: 'text'
+    };
+  };
+
+  // Convert RequestDMMessage to local message format
+  const convertRequestDMMessage = (dmMsg: RequestDMMessage): Message => {
+    return {
+      id: dmMsg.id,
+      text: dmMsg.text,
+      sender: dmMsg.senderName,
+      timestamp: dmMsg.timestamp.toDate().toLocaleTimeString([], { 
+        hour: '2-digit', 
+        minute: '2-digit' 
+      }),
+      isCurrentUser: dmMsg.senderId === authUser?.uid,
+      type: dmMsg.type === 'system' ? 'system' : 'text'
+    };
+  };
+
+  const markMessagesAsRead = async (latestMessageId: string) => {
+    if (authUser?.uid && latestMessageId && chat.type === 'group') {
+      try {
+        await ChatService.markMessagesAsRead(chat.id, authUser.uid, latestMessageId);
+      } catch (error) {
+        console.error('Error marking messages as read:', error);
       }
     }
-  }, [chat.id, chat.projectId, chat.requestId, chat.type, messages.length, onMessageSent]);
+    // For request DMs, we don't need to track read status since they're temporary
+  };
 
-  // Handle sending a new message
-  const handleSendMessage = (): void => {
-    if (inputText.trim() === '') return;
+  // Subscribe to real-time messages
+  useEffect(() => {
+    if (!authUser || !chat.id) return;
+
+    setLoading(true);
     
-    const newMessage: Message = {
-      id: Date.now().toString(),
-      text: inputText,
-      sender: 'Me',
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      isCurrentUser: true,
-    };
-    
-    setMessages([...messages, newMessage]);
-    setInputText('');
-    
-    // Notify the parent component about the new message
-    if (onMessageSent) {
-      onMessageSent(chat.id, inputText);
+    if (chat.type === 'group') {
+      const unsubscribe = ChatService.subscribeToGroupChatMessages(
+        chat.id,
+        async (firebaseMessages: FirebaseChatMessage[]) => {
+          const convertedMessages = firebaseMessages.map(convertFirebaseGroupMessage);
+          setMessages(convertedMessages);
+          
+          // Mark messages as read if there are any messages
+          if (firebaseMessages.length > 0) {
+            const latestMessage = firebaseMessages[firebaseMessages.length - 1];
+            setLastMessageId(latestMessage.id);
+            
+            // Mark as read after a short delay to ensure UI is ready
+            setTimeout(() => {
+              markMessagesAsRead(latestMessage.id);
+            }, 500);
+          }
+          
+          setLoading(false);
+          
+          // Auto-scroll to bottom when messages are loaded/updated
+          setTimeout(() => {
+            scrollToBottom(!loading); // No animation on initial load, animated for updates
+          }, 200);
+        }
+      );
+
+      return () => unsubscribe();
+    } else if (chat.type === 'request_dm') {
+      const unsubscribe = ChatService.subscribeToRequestDMMessages(
+        chat.id,
+        async (dmMessages: RequestDMMessage[]) => {
+          const convertedMessages = dmMessages.map(convertRequestDMMessage);
+          setMessages(convertedMessages);
+          setLoading(false);
+          
+          // Auto-scroll to bottom when messages are loaded/updated
+          setTimeout(() => {
+            scrollToBottom(!loading); // No animation on initial load, animated for updates
+          }, 200);
+        }
+      );
+
+      return () => unsubscribe();
     }
-  };
-
-  // Handle accepting a request (for direct messages related to project requests)
-  const handleAcceptRequest = (): void => {
-    // Add a system message to indicate the request was accepted
-    const systemMessage: Message = {
-      id: Date.now().toString(),
-      text: "✅ You've accepted this request. The user will be added to the project.",
-      sender: 'System',
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      isCurrentUser: false,
-    };
-    
-    setMessages([...messages, systemMessage]);
-    setRequestHandled(true);
-    
-    // You would typically call an API to update the project membership here
-  };
+  }, [chat.id, chat.type, authUser]);
   
-  // Handle declining a request
-  const handleDeclineRequest = (): void => {
-    // Add a system message to indicate the request was declined
-    const systemMessage: Message = {
-      id: Date.now().toString(),
-      text: "❌ You've declined this request.",
-      sender: 'System',
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      isCurrentUser: false,
-    };
+  useEffect(() => {
+    if (lastMessageId && authUser?.uid) {
+      markMessagesAsRead(lastMessageId);
+    }
+  }, [lastMessageId, authUser?.uid]);
+
+  // Auto-scroll when chat is first opened or when returning to it
+  useEffect(() => {
+    if (!loading && messages.length > 0) {
+      setTimeout(() => {
+        scrollToBottom(false); // No animation when first opening
+      }, 300);
+    }
+  }, [loading, chat.id]); // Trigger when chat changes or loading completes
+
+  // Handle sending a message
+  const handleSendMessage = async (): Promise<void> => {
+    if (inputText.trim() === '' || !authUser) return;
     
-    setMessages([...messages, systemMessage]);
-    setRequestHandled(true);
+    setSendingMessage(true);
     
-    // You would typically call an API to update the request status here
+    try {
+      let success = false;
+      
+      if (chat.type === 'group') {
+        success = await ChatService.sendGroupChatMessage(
+          chat.id,
+          authUser.uid,
+          authUser.displayName || 'Anonymous',
+          inputText.trim()
+        );
+      } else if (chat.type === 'request_dm') {
+        success = await ChatService.sendRequestDMMessage(
+          chat.id,
+          authUser.uid,
+          authUser.displayName || 'Anonymous',
+          inputText.trim()
+        );
+      }
+
+      if (!success) {
+        Alert.alert('Error', 'Failed to send message. Please try again.');
+        return;
+      }
+
+      setInputText('');
+      
+      // Auto-scroll to bottom after sending a message
+      setTimeout(() => {
+        scrollToBottom(true);
+      }, 150);
+      
+      if (onMessageSent) {
+        onMessageSent(chat.id, inputText);
+      }
+    } catch (error) {
+      console.error('Error sending message:', error);
+      Alert.alert('Error', 'Failed to send message. Please try again.');
+    } finally {
+      setSendingMessage(false);
+    }
   };
 
   // Render a message bubble
   const renderMessage = ({ item }: { item: Message }): JSX.Element => {
-    // Check if this is a system message
-    const isSystemMessage = item.sender === 'System';
+    const isSystemMessage = item.type === 'system' || item.sender === 'System';
     
     return (
       <View 
@@ -233,6 +257,15 @@ export const ChatDetail: React.FC<{
     );
   };
 
+  if (loading) {
+    return (
+      <ThemedView style={[styles.container, styles.centerContent]}>
+        <ActivityIndicator size="large" />
+        <Text style={{ marginTop: 16 }}>Loading messages...</Text>
+      </ThemedView>
+    );
+  }
+
   return (
     <KeyboardAvoidingView
       style={styles.container}
@@ -244,7 +277,10 @@ export const ChatDetail: React.FC<{
         <Appbar.BackAction onPress={onBack} />
         <Appbar.Content 
           title={chat.name}
-          subtitle={chat.type === 'direct' ? 'Direct Message' : undefined}
+          subtitle={chat.type === 'request_dm' 
+            ? 'Temporary request chat' 
+            : `${chat.memberCount || 0} members`
+          }
         />
         <Appbar.Action icon="information" onPress={() => console.log('Info')} />
       </Appbar.Header>
@@ -252,55 +288,46 @@ export const ChatDetail: React.FC<{
       <ThemedView style={styles.container}>
         <Divider />
 
-        {/* Project request info for direct messages */}
-        {chat.type === 'direct' && chat.projectId && (
-          <Surface style={styles.projectInfoContainer}>
-            <View style={styles.projectInfoContent}>
-              <Text style={styles.projectInfoText}>
-                Discussing request for:
-              </Text>
-              <Chip 
-                icon="folder" 
-                style={styles.projectChip}
-              >
-                {formatProjectName(chat.projectId)}
-              </Chip>
-            </View>
-            
-            {/* Action buttons for request */}
-            {chat.requestId && !requestHandled && (
-              <View style={styles.requestActions}>
-                <Button 
-                  mode="outlined" 
-                  compact 
-                  icon="close" 
-                  onPress={handleDeclineRequest}
-                  style={[styles.requestActionButton, styles.declineButton]}
-                  labelStyle={styles.requestButtonLabel}
-                >
-                  Decline
-                </Button>
-                <Button 
-                  mode="outlined" 
-                  compact 
-                  icon="check" 
-                  onPress={handleAcceptRequest}
-                  style={[styles.requestActionButton, styles.acceptButton]}
-                  labelStyle={styles.requestButtonLabel}
-                >
-                  Accept
-                </Button>
-              </View>
-            )}
-          </Surface>
+        {/* Welcome message for new chats */}
+        {messages.length === 0 && !loading && (
+          <View style={styles.welcomeMessageContainer}>
+            <Text variant="bodyMedium" style={styles.welcomeMessage}>
+              {chat.type === 'request_dm' 
+                ? 'This is a temporary chat for discussing the project request. It will close when the request is resolved.'
+                : `Welcome to the ${chat.name} project chat! Start the conversation.`
+              }
+            </Text>
+          </View>
         )}
 
         {/* Messages List */}
         <FlatList
+          ref={flatListRef}
           data={messages}
           renderItem={renderMessage}
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.messagesList}
+          showsVerticalScrollIndicator={false}
+          maintainVisibleContentPosition={{
+            minIndexForVisible: 0,
+            autoscrollToTopThreshold: 10
+          }}
+          onContentSizeChange={() => {
+            // Auto-scroll when content size changes (new messages arrive)
+            if (!loading) {
+              setTimeout(() => {
+                scrollToBottom(true);
+              }, 100);
+            }
+          }}
+          onLayout={() => {
+            // Scroll to bottom when FlatList is laid out for the first time
+            if (!loading && messages.length > 0) {
+              setTimeout(() => {
+                scrollToBottom(false);
+              }, 200);
+            }
+          }}
         />
         
         {/* Input Area */}
@@ -312,11 +339,19 @@ export const ChatDetail: React.FC<{
             onChangeText={setInputText}
             placeholder="New message..."
             outlineStyle={styles.inputOutline}
+            disabled={sendingMessage}
+            onFocus={() => {
+              // Scroll to bottom when user focuses input
+              setTimeout(() => {
+                scrollToBottom(true);
+              }, 300); // Slight delay to account for keyboard animation
+            }}
           />
           <Button 
             mode="contained" 
             onPress={handleSendMessage}
-            disabled={inputText.trim() === ''}
+            disabled={inputText.trim() === '' || sendingMessage}
+            loading={sendingMessage}
             style={styles.sendButton}
           >
             Send
@@ -330,6 +365,10 @@ export const ChatDetail: React.FC<{
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+  },
+  centerContent: {
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   messagesList: {
     padding: 16,
@@ -385,43 +424,13 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     alignSelf: 'center',
   },
-  projectInfoContainer: {
-    flexDirection: 'column',
-    padding: 8,
-    paddingHorizontal: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#E5E5E5',
-  },
-  projectInfoContent: {
-    flexDirection: 'row',
+  welcomeMessageContainer: {
+    padding: 16,
     alignItems: 'center',
   },
-  projectInfoText: {
-    fontSize: 14,
-    marginRight: 8,
-  },
-  projectChip: {
-    height: 32,
-  },
-  requestActions: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    marginTop: 8,
-  },
-  requestActionButton: {
-    marginLeft: 8,
-    height: 36,
-  },
-  requestButtonLabel: {
-    fontSize: 12,
-    lineHeight: 12,
-    paddingTop: 2,
-    margin: 0,
-  },
-  declineButton: {
-    borderColor: 'rgba(244, 67, 54, 0.5)',
-  },
-  acceptButton: {
-    borderColor: 'rgba(76, 175, 80, 0.5)',
+  welcomeMessage: {
+    textAlign: 'center',
+    color: '#666',
+    fontStyle: 'italic',
   },
 });
