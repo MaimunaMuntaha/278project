@@ -59,7 +59,9 @@ export default function Feed() {
   const [searchText, setSearchText] = useState('');
   const [sendingRequest, setSendingRequest] = useState(false); // Loading state for sending requests
   const [joinedProjects, setJoinedProjects] = useState<Set<string>>(new Set()); // Track joined projects
-  const [pendingRequests, setPendingRequests] = useState<Set<string>>(new Set()); // Track pending requests
+  const [pendingRequests, setPendingRequests] = useState<Set<string>>(
+    new Set(),
+  ); // Track pending requests
   const { user: authUser } = useAuth();
 
   const [userData, setUserData] = useState<UserData | null>(null);
@@ -97,12 +99,12 @@ export default function Feed() {
         const userDoc = await getDoc(doc(db, 'users', authUser.uid));
         if (userDoc.exists()) {
           const data = userDoc.data();
-          
+
           // Set the complete user data
           setUserData(data);
 
           console.log('User data fetched:', data);
-          
+
           // Set tags as before
           const tagsFromDB = Array.isArray(data.tags)
             ? data.tags.map((tag: string) => tag.trim().toLowerCase())
@@ -124,16 +126,18 @@ export default function Feed() {
 
       try {
         // Get user's group chats
-        const userGroupChats = await ChatService.getUserGroupChats(authUser.uid);
-        
+        const userGroupChats = await ChatService.getUserGroupChats(
+          authUser.uid,
+        );
+
         // Create a set of project names the user has joined
         const joinedProjectNames = new Set(
-          userGroupChats.map(chat => chat.projectName.toLowerCase())
+          userGroupChats.map((chat) => chat.projectName.toLowerCase()),
         );
 
         // Check which projects from the feed the user has joined
         const joinedProjectIds = new Set<string>();
-        projects.forEach(project => {
+        projects.forEach((project) => {
           if (joinedProjectNames.has(project.title.toLowerCase())) {
             joinedProjectIds.add(project.id);
           }
@@ -155,16 +159,18 @@ export default function Feed() {
 
       try {
         // Get user's sent requests
-        const userSentRequests = await ChatService.getUserSentRequests(authUser.uid);
-        
+        const userSentRequests = await ChatService.getUserSentRequests(
+          authUser.uid,
+        );
+
         // Create a set of project names the user has pending requests for
         const pendingProjectNames = new Set(
-          userSentRequests.map(request => request.projectName.toLowerCase())
+          userSentRequests.map((request) => request.projectName.toLowerCase()),
         );
 
         // Check which projects from the feed have pending requests
         const pendingProjectIds = new Set<string>();
-        projects.forEach(project => {
+        projects.forEach((project) => {
           if (pendingProjectNames.has(project.title.toLowerCase())) {
             pendingProjectIds.add(project.id);
           }
@@ -188,19 +194,19 @@ export default function Feed() {
       (sentRequests) => {
         // Create a set of project names with pending requests
         const pendingProjectNames = new Set(
-          sentRequests.map(request => request.projectName.toLowerCase())
+          sentRequests.map((request) => request.projectName.toLowerCase()),
         );
 
         // Update pending projects based on current projects in feed
         const pendingProjectIds = new Set<string>();
-        projects.forEach(project => {
+        projects.forEach((project) => {
           if (pendingProjectNames.has(project.title.toLowerCase())) {
             pendingProjectIds.add(project.id);
           }
         });
 
         setPendingRequests(pendingProjectIds);
-      }
+      },
     );
 
     return () => unsubscribe();
@@ -268,12 +274,14 @@ export default function Feed() {
         `Group chat for ${title.trim()}`, // description
         authUser.uid, // creatorId
         userData?.name || 'Anonymous', // creatorName
-        authUser.email || '' // creatorEmail
+        authUser.email || '', // creatorEmail
       );
 
       if (groupChatId) {
-        console.log(`Created group chat ${groupChatId} for project ${postRef.id}`);
-        
+        console.log(
+          `Created group chat ${groupChatId} for project ${postRef.id}`,
+        );
+
         // Optionally, you could store the groupChatId in the post document
         // This would create a direct link between the post and its group chat
         // await updateDoc(postRef, { groupChatId });
@@ -286,7 +294,7 @@ export default function Feed() {
       setTags('');
       setDescription('');
       setCreateModal(false);
-      
+
       Alert.alert('Success', 'Project posted and group chat created!');
     } catch (error) {
       console.error('Error posting project:', error);
@@ -314,7 +322,10 @@ export default function Feed() {
 
     // Check if user already has a pending request for this project
     if (pendingRequests.has(project.id)) {
-      Alert.alert('Info', 'You already have a pending request for this project. Please wait for the project owner to respond.');
+      Alert.alert(
+        'Info',
+        'You already have a pending request for this project. Please wait for the project owner to respond.',
+      );
       return;
     }
 
@@ -339,23 +350,23 @@ export default function Feed() {
         selectedProject.uid, // toUserId (project owner)
         selectedProject.title, // projectName
         message, // message
-        selectedProject.id // projectId
+        selectedProject.id, // projectId
       );
 
       if (requestId) {
         // Immediately update pending requests for instant UI feedback
-        setPendingRequests(prev => new Set(prev).add(selectedProject.id));
-        
+        setPendingRequests((prev) => new Set(prev).add(selectedProject.id));
+
         Alert.alert(
           'Request Sent!',
-          `Your request to join "${selectedProject.title}" has been sent to ${selectedProject.username}. You'll be notified when they respond.`
+          `Your request to join "${selectedProject.title}" has been sent to ${selectedProject.username}. You'll be notified when they respond.`,
         );
         setRequestModalVisible(false);
         setSelectedProject(null);
       } else {
         Alert.alert(
           'Request Not Sent',
-          'A request for this project may already exist or there was an error. Please try again.'
+          'A request for this project may already exist or there was an error. Please try again.',
         );
       }
     } catch (error) {
@@ -375,9 +386,7 @@ export default function Feed() {
     if (isOwner) {
       return (
         <View style={[styles.chatButton, styles.ownProjectButton]}>
-          <ThemedText style={{ color: DARK_PURPLE }}>
-            Your Project
-          </ThemedText>
+          <ThemedText style={{ color: DARK_PURPLE }}>Your Project</ThemedText>
         </View>
       );
     }
@@ -387,9 +396,7 @@ export default function Feed() {
         <View style={[styles.chatButton, styles.joinedButton]}>
           <View style={styles.joinedButtonContent}>
             <Ionicons name="checkmark-circle" size={20} color="#4CAF50" />
-            <ThemedText style={styles.joinedButtonText}>
-              Joined
-            </ThemedText>
+            <ThemedText style={styles.joinedButtonText}>Joined</ThemedText>
           </View>
         </View>
       );
@@ -410,10 +417,7 @@ export default function Feed() {
 
     return (
       <TouchableOpacity
-        style={[
-          styles.chatButton,
-          sendingRequest && styles.disabledButton
-        ]}
+        style={[styles.chatButton, sendingRequest && styles.disabledButton]}
         onPress={() => openRequestModal(project)}
         disabled={sendingRequest}
       >
@@ -426,15 +430,15 @@ export default function Feed() {
 
   const renderProject = ({ item }: { item: Project }) => (
     <View style={styles.card}>
-      <ThemedText type="title" style={{ paddingBottom: 20 }}>
+      <ThemedText type="title" style={{ paddingBottom: 10 }}>
         {item.title}
       </ThemedText>
       <View
         style={{
           flexDirection: 'row',
-          gap: 8,
+          gap: 1,
           flexWrap: 'wrap',
-          paddingBottom: 10,
+          paddingBottom: 1,
         }}
       >
         {item.tags.split(',').map((tag, i) => (
@@ -516,12 +520,15 @@ export default function Feed() {
                     marginRight: 12,
                   }}
                 />
-                <ThemedText style={{ fontWeight: '600', fontSize: 16 }}>
+                <ThemedText style={{ fontWeight: '500', fontSize: 16 }}>
                   {project.username}
                 </ThemedText>
               </View>
 
-              <ThemedText type="title" style={{ paddingBottom: 20 }}>
+              <ThemedText
+                type="title"
+                style={{ fontSize: 25, paddingBottom: 10 }}
+              >
                 {project.title}
               </ThemedText>
               {/* Rest of your project card content */}
@@ -540,7 +547,7 @@ export default function Feed() {
                 ))}
               </View>
               <ThemedText>{project.description}</ThemedText>
-              
+
               {/* Render appropriate button based on user status */}
               {authUser && renderProjectButton(project)}
             </View>
@@ -635,7 +642,7 @@ const styles = StyleSheet.create({
     elevation: 5,
   },
   reactLogo: {
-    height: 150,
+    height: 170,
     width: SCREEN_WIDTH,
     bottom: 50,
     left: 0,
@@ -646,19 +653,20 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginTop: 20,
     paddingHorizontal: 16,
-    minHeight: 500,
+    minHeight: 300,
   },
   card: {
     width: '100%',
     backgroundColor: LIGHT_PURPLE,
-    padding: 30,
-    borderRadius: 20,
-    marginVertical: 12,
+    padding: 16,
+    borderRadius: 10,
+    marginVertical: 8,
     shadowColor: DARK_PURPLE,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
   },
+
   chatButton: {
     backgroundColor: DARK_PURPLE,
     marginTop: 20,
@@ -762,24 +770,15 @@ const styles = StyleSheet.create({
   tag: {
     backgroundColor: 'white',
     padding: 10,
-    borderRadius: 14,
-    marginRight: 8,
-    marginBottom: 8,
+    borderRadius: 5,
+    marginRight: 15,
     shadowColor: DARK_PURPLE,
     shadowOpacity: 0.3,
     shadowRadius: 3,
     borderColor: DARK_PURPLE,
   },
   tagText: {
-    fontSize: 16,
+    fontSize: 15,
     color: DARK_PURPLE,
-  },
-  noMoreProjects: {
-    marginTop: 50,
-    alignItems: 'center',
-    gap: 16,
-    backgroundColor: LIGHT_PURPLE,
-    padding: 20,
-    borderRadius: 20,
   },
 });
