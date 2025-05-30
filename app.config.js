@@ -13,7 +13,7 @@ export default {
 
     ios: {
       supportsTablet: true,
-      bundleIdentifier: 'com.anonymous.278project'
+      bundleIdentifier: 'com.anonymous.278project',
     },
     android: {
       adaptiveIcon: {
@@ -43,7 +43,11 @@ export default {
     experiments: { typedRoutes: true },
 
     /* 🔑 all secrets live here – **never** commit .env to git */
+
     extra: {
+      eas: {
+        projectId: '9ce4621b-03af-4d66-9462-5b58126f08b0',
+      },
       EXPO_PUBLIC_GOOGLE_CLIENT_ID: process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID,
       EXPO_PUBLIC_FIREBASE_API_KEY: process.env.EXPO_PUBLIC_FIREBASE_API_KEY,
       EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN:
