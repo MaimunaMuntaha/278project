@@ -27,6 +27,7 @@ import {
   addDoc,
   doc,
   getDoc,
+  deleteDoc,
   serverTimestamp,
 } from 'firebase/firestore';
 
@@ -63,6 +64,8 @@ export default function Feed() {
     new Set(),
   ); // Track pending requests
   const { user: authUser } = useAuth();
+  const [selectedProjectToDelete, setSelectedProjectToDelete] = useState<Project | null>(null);
+
 
   const [userData, setUserData] = useState<UserData | null>(null);
 
@@ -389,6 +392,7 @@ export default function Feed() {
     const isOwner = authUser && project.uid === authUser.uid;
     const isJoined = joinedProjects.has(project.id);
     const isPending = pendingRequests.has(project.id);
+    
 
     if (isOwner) {
       return (
@@ -465,7 +469,16 @@ export default function Feed() {
       </TouchableOpacity>
     </View>
   );
-
+  const deleteProject = async (projectId: string) => {
+    try {
+      await deleteDoc(doc(db, 'posts', projectId));
+      Alert.alert('Deleted', 'Project has been removed.');
+    } catch (error) {
+      console.error('Error deleting project:', error);
+      Alert.alert('Error', 'Failed to delete project.');
+    }
+  };
+  
   return (
     <ThemedView style={{ flex: 1 }}>
       <ParallaxScrollView
@@ -563,6 +576,19 @@ export default function Feed() {
 
               {/* Render appropriate button based on user status */}
               {authUser && renderProjectButton(project)}
+              {authUser?.uid === project.uid && (
+                <TouchableOpacity
+                  onPress={() => setSelectedProjectToDelete(project)}
+                  style={{
+                    position: 'absolute',
+                    top: 10,
+                    right: 10,
+                    padding: 6,
+                  }}
+                >
+                  <Ionicons name="trash" size={22} color="#B00020" />
+                </TouchableOpacity>
+              )}
             </View>
           ))}
         </View>
@@ -614,6 +640,42 @@ export default function Feed() {
               </TouchableOpacity>
               <TouchableOpacity style={styles.chatButton} onPress={handlePost}>
                 <ThemedText style={{ color: 'white' }}>Post Project</ThemedText>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={selectedProjectToDelete !== null}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setSelectedProjectToDelete(null)}
+      >
+        <View style={styles.modalStyle}>
+          <View style={[styles.modalContent, { padding: 30 }]}>
+            <ThemedText type="title" style={{ marginBottom: 16 }}>
+              Confirm Deletion
+            </ThemedText>
+            <ThemedText style={{ marginBottom: 24 }}>
+              Are you sure you want to delete "{selectedProjectToDelete?.title}"?
+              This action cannot be undone.
+            </ThemedText>
+            <View style={styles.buttonRow}>
+              <TouchableOpacity
+                style={[styles.chatButton, { backgroundColor: '#ccc' }]}
+                onPress={() => setSelectedProjectToDelete(null)}
+              >
+                <ThemedText style={{ color: 'white' }}>Cancel</ThemedText>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.chatButton, { backgroundColor: '#B00020' }]}
+                onPress={() => {
+                  deleteProject(selectedProjectToDelete!.id);
+                  setSelectedProjectToDelete(null);
+                }}
+              >
+                <ThemedText style={{ color: 'white' }}>Delete</ThemedText>
               </TouchableOpacity>
             </View>
           </View>
