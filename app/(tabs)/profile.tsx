@@ -31,6 +31,7 @@ interface UserProfileData {
   friendsCount: number;
   projectsCount: number;
   thumbsCount: number;
+  profileColor: string;
 }
 
 // Helper for loading view
@@ -55,6 +56,8 @@ export default function ProfileScreen() {
   const [draftBio, setDraftBio] = useState('');
   const [draftTags, setDraftTags] = useState<string[]>([]);
   const [draftPhotoUri, setDraftPhotoUri] = useState<string | undefined | null>(null);
+  const [draftColor, setDraftColor] = useState('#ff8c00');
+
   // Social stats are not directly editable by the user on this form
   // They would be updated by other app logic (e.g., adding a friend, creating a project)
 
@@ -75,6 +78,7 @@ export default function ProfileScreen() {
           setDraftBio(data.bio || '');
           setDraftTags(data.tags || []);
           setDraftPhotoUri(data.photoURL || null);
+          setDraftColor(data.profileColor || '#ff8c00');
           // Social stats are displayed directly from profileData, not part of draft editing here
         } else {
           Alert.alert("Error", "No profile data found. Please complete your profile if you haven't.");
@@ -173,6 +177,7 @@ export default function ProfileScreen() {
         tags: draftTags,
         photoURL: newPhotoURL,
         updatedAt: serverTimestamp(),
+        profileColor: draftColor,
         // Social stats (friendsCount, projectsCount, thumbsCount) are NOT updated here
         // They are initialized at sign-up and updated by other app logic
       };
@@ -311,6 +316,39 @@ export default function ProfileScreen() {
         ) : (
           <Card.Content style={styles.rowWrap}>
             {(profileData?.tags || []).map((t: string) => (<Chip key={t} style={styles.chip}>{t}</Chip>))}
+          </Card.Content>
+        )}
+      </Card>
+
+      <Card mode="contained" style={styles.card}>
+        <Card.Title title="Profile Color" />
+        {isEditing ? (
+          <Card.Content style={{ flexDirection: 'row', gap: 10, paddingTop: 8 }}>
+            {['#FFE4E1', '#B0E0E6', '#98FB98', '#E6E6FA'].map((color) => (
+              <TouchableOpacity
+                key={color}                onPress={() => setDraftColor(color)}
+                style={{
+                  width: 30,
+                  height: 30,
+                  borderRadius: 15,
+                  backgroundColor: color,
+                  borderWidth: draftColor === color ? 3 : 0,
+                  borderColor: '#000',
+                }}
+              />
+            ))}
+          </Card.Content>
+        ) : (
+          <Card.Content style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+            <Text>Selected Color:</Text>
+            <View
+              style={{
+                width: 30,
+                height: 30,
+                borderRadius: 15,
+                backgroundColor: profileData?.profileColor || '#ff8c00',
+              }}
+            />
           </Card.Content>
         )}
       </Card>

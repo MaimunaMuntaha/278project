@@ -79,6 +79,7 @@ export default function Feed() {
           description: data.description,
           username: data.username,
           uid: data.uid, // Include the project owner's user ID
+          profileColor: data.profileColor,
           pfp: data.photoURL
             ? { uri: data.photoURL }
             : require('@/assets/images/pfp.png'), // TODO: do images work?
@@ -252,6 +253,10 @@ export default function Feed() {
     }
 
     try {
+      const userDoc = await getDoc(doc(db, 'users', authUser.uid));
+      const userDataFirestore = userDoc.data();
+      const profileColor = userDataFirestore?.profileColor || '#ff8c00';
+
       const newPost = {
         title: title.trim(),
         tags: tags.trim(),
@@ -262,10 +267,12 @@ export default function Feed() {
         createdAt: new Date(),
       };
 
+     
       // Create the project post
       const postRef = await addDoc(collection(db, 'posts'), {
         ...newPost,
         createdAt: serverTimestamp(), // consistent across timezones
+        profileColor,
       });
 
       // Create a corresponding group chat for this project
@@ -499,7 +506,13 @@ export default function Feed() {
         <View style={styles.feedContainer}>
           {/* The rest of algorithm established in projectAlgorithm  */}
           {filteredProjects.map((project) => (
-            <View key={project.id.toString()} style={styles.card}>
+            <View
+            key={project.id.toString()}
+            style={[
+              styles.card,
+              { backgroundColor: project.profileColor || '#e7e0ec' }
+            ]}
+          >
               <View
                 style={{
                   flexDirection: 'row',
